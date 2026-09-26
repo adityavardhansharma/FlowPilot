@@ -1,0 +1,14 @@
+<!-- @dsCard group="Actions" height=200 -->
+<div class="fp-col">
+  <div class="bg" role="radiogroup" aria-label="Agent">
+    <button class="seg on sl" role="radio" aria-checked="true"><span class="ms fill">construction</span>Build</button>
+    <button class="seg sl" role="radio" aria-checked="false"><span class="ms ">map</span>Plan</button>
+  </div>
+  <div class="bg" role="radiogroup" aria-label="Reasoning effort">
+    <button class="seg sl">Low</button><button class="seg on sl">Medium</button><button class="seg sl">High</button>
+  </div>
+  <div class="bg" role="radiogroup" aria-label="Refresh">
+    <button class="seg sl">1s</button><button class="seg on sl">2s</button><button class="seg sl">5s</button><button class="seg sl"><span class="ms ">pause</span></button>
+  </div>
+</div>
+<script>document.querySelectorAll('.bg').forEach(g=>g.addEventListener('click',e=>{const b=e.target.closest('.seg');if(!b)return;g.querySelectorAll('.seg').forEach(s=>{s.classList.toggle('on',s===b);s.setAttribute('aria-checked',s===b)})}))</script>

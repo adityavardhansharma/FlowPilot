@@ -1,0 +1,15 @@
+<!-- @dsCard group="Human in the loop" height=400 -->
+<div class="fp-col" style="max-width:420px">
+  <div class="card" style="background:var(--tertiary-container);color:var(--on-tertiary-container);padding:16px;border-radius:20px">
+    <div class="fp-row" style="gap:8px;font:500 12px/16px var(--font-brand)"><span class="ms s18" style="color:var(--on-tertiary-container)">front_hand</span>Approval needed · shell</div>
+    <div style="font:600 16px/24px var(--font-brand);margin:8px 0 4px">Run <span class="mono">npm test</span>?</div>
+    <div style="font:400 14px/20px var(--font-brand);margin-bottom:12px">The agent wants to run a shell command in <b>flowpilot-app</b>.</div>
+    <div class="code" style="margin-bottom:16px"><pre><span style="color:var(--terminal-prompt)">$</span> npm test -- --filter auth</pre></div>
+    <div class="fp-row" style="gap:8px">
+      <button class="btn filled sl" id="once">Allow once</button>
+      <button class="btn sl" style="background:color-mix(in srgb,var(--on-tertiary-container) 12%,transparent);color:var(--on-tertiary-container)">Always allow</button>
+      <button class="btn sl" style="box-shadow:inset 0 0 0 1px var(--on-tertiary-container);color:var(--on-tertiary-container)">Deny</button>
+    </div>
+  </div>
+  <div class="trow" style="padding-left:4px;color:var(--on-surface-variant)"><span class="ms s20">check</span><span class="what">Allowed <code>npm test</code> once</span><span class="meta">answered</span></div>
+</div>

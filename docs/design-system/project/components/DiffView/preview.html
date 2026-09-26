@@ -1,0 +1,5 @@
+<!-- @dsCard group="Chat" height=300 -->
+<div class="code" style="max-width:420px">
+  <div class="bar"><span class="mono" style="color:var(--on-surface)">src/auth/redirect.ts</span><span class="meta" style="font:500 12px var(--font-brand)"><span style="color:var(--diff-add-ink)">+2</span> <span style="color:var(--diff-remove-ink)">−1</span></span></div>
+<pre style="padding:8px 0"><span class="dl" style="color:var(--on-surface-variant)"><span class="g"></span>@@ -12,6 +12,7 @@</span><span class="dl"><span class="g">12</span> export function redirectUri(req) {</span><span class="dl rem"><span class="g">13</span>−  return `https://${req.host}/cb`</span><span class="dl add"><span class="g">13</span>+  const base = process.env.PUBLIC_URL</span><span class="dl add"><span class="g">14</span>+  return `${base}/auth/callback`</span><span class="dl"><span class="g">15</span> }</span></pre>
+</div>

@@ -1,0 +1,15 @@
+<!-- @dsCard group="Surfaces" height=360 -->
+<div style="max-width:400px">
+  <div class="fp-cap" style="padding:0 4px 8px">Anthropic <span style="float:right;color:var(--primary)">Show all</span></div>
+  <div class="list">
+    <div class="li"><div class="body"><div class="t">Claude Opus 5</div><div class="s">1M context · reasoning</div></div><span class="sw on" role="switch" aria-checked="true"></span></div>
+    <div class="li"><div class="body"><div class="t">Claude Sonnet 5</div><div class="s">1M context</div></div><span class="sw on" role="switch" aria-checked="true"></span></div>
+    <div class="li"><div class="body"><div class="t">Claude Haiku 4.5</div><div class="s">200k context</div></div><span class="sw" role="switch" aria-checked="false"></span></div>
+  </div>
+  <div class="fp-cap" style="padding:16px 4px 8px">Chat</div>
+  <div class="list">
+    <div class="li sl"><div class="lead"><span class="ms ">construction</span></div><div class="body"><div class="t">Default agent</div><div class="s">Build</div></div><span class="ms">chevron_right</span></div>
+    <div class="li sl"><div class="lead"><span class="ms ">neurology</span></div><div class="body"><div class="t">Show reasoning</div></div><span class="sw" role="switch" aria-checked="false"></span></div>
+  </div>
+</div>
+<script>document.querySelectorAll('.sw').forEach(s=>s.addEventListener('click',()=>{s.classList.toggle('on');s.setAttribute('aria-checked',s.classList.contains('on'))}))</script>
