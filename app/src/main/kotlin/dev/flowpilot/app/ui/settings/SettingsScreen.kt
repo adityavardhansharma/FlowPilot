@@ -127,7 +127,7 @@ fun SettingsScreen(onBack: () -> Unit, onPair: () -> Unit, onModels: () -> Unit)
             SectionHeader("About")
             ListGroup {
                 Column(Modifier.padding(16.dp)) {
-                    Text("FlowPilot ${dev.flowpilot.app.BuildInfo.VERSION}", style = MaterialTheme.typography.bodyLarge)
+                    Text("FlowPilot ${dev.flowpilot.app.BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyLarge)
                     Text("A phone client for OpenCode 2.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

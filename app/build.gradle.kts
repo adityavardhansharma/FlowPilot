@@ -12,8 +12,22 @@ android {
         applicationId = "dev.flowpilot.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        // The release workflow passes these; local and CI builds fall back to the defaults.
+        versionCode = (findProperty("flowpilot.versionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("flowpilot.versionName") as String?) ?: "0.1.0"
+    }
+
+    signingConfigs {
+        // Set by the release workflow when the FLOWPILOT_KEYSTORE secrets exist.
+        val keystore = System.getenv("FLOWPILOT_KEYSTORE_PATH")
+        if (keystore != null) {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("FLOWPILOT_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("FLOWPILOT_KEY_ALIAS")
+                keyPassword = System.getenv("FLOWPILOT_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -21,8 +35,8 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the debug key until a release key exists, so CI can hand out an installable APK.
-            signingConfig = signingConfigs.getByName("debug")
+            // Signed with the release key when one is configured, else the debug key so the APK still installs.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 
@@ -33,6 +47,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
