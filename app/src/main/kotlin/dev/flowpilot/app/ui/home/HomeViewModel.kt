@@ -57,7 +57,8 @@ class HomeViewModel(private val graph: AppGraph, val conn: ServerConnection) : V
         viewModelScope.launch {
             conn.events.collect { e ->
                 var stale = false
-                _ui.update { u -> u.copy(state = u.state.reduce(e).also { stale = it.stale }) }
+                // One odd event must never take the app down; skip it and let the next refresh correct things.
+                _ui.update { u -> u.copy(state = runCatching { u.state.reduce(e) }.getOrDefault(u.state).also { stale = it.stale }) }
                 if (stale) { delay(400); refresh(silent = true) }
             }
         }
@@ -77,6 +78,7 @@ class HomeViewModel(private val graph: AppGraph, val conn: ServerConnection) : V
 
     fun refresh(silent: Boolean = false) {
         if (refreshJob?.isActive == true) return
+        if (!silent) conn.retryNow()
         refreshJob = viewModelScope.launch {
             if (!silent) _ui.update { it.copy(refreshing = !it.firstLoad) }
             try {

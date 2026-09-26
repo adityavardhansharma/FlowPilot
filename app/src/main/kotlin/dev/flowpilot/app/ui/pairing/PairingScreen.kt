@@ -68,12 +68,15 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.flowpilot.app.ui.components.CodeBlock
 import dev.flowpilot.app.ui.components.Ic
 import dev.flowpilot.app.ui.components.Sym
 import dev.flowpilot.app.ui.graph
+import dev.flowpilot.app.ui.rememberLocalNetworkAccess
+import dev.flowpilot.core.api.ServerAddress
 import dev.flowpilot.app.ui.theme.CodeStyle
 import dev.flowpilot.app.ui.theme.Radius
 
@@ -82,6 +85,7 @@ fun PairingScreen(onPaired: () -> Unit, onBack: (() -> Unit)? = null) {
     val g = graph
     val vm: PairingViewModel = viewModel { PairingViewModel(g) }
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val lan = rememberLocalNetworkAccess()
     LaunchedEffect(ui.done) { if (ui.done) onPaired() }
     BackHandler(enabled = ui.step == PairStep.Scan || ui.step == PairStep.Manual) { vm.go(PairStep.Welcome) }
 
@@ -93,9 +97,10 @@ fun PairingScreen(onPaired: () -> Unit, onBack: (() -> Unit)? = null) {
             label = "pair",
         ) { step ->
             when (step) {
-                PairStep.Welcome -> Welcome(onScan = { vm.go(PairStep.Scan) }, onManual = { vm.go(PairStep.Manual) }, onBack = onBack)
-                PairStep.Scan -> Scan(ui.scanError, vm::onScanned, onManual = { vm.go(PairStep.Manual) }, onBack = { vm.go(PairStep.Welcome) })
-                PairStep.Manual -> Manual(ui, vm, onBack = { vm.go(PairStep.Welcome) })
+                // Ask for local network access up front: on Android 17 every LAN request fails without it.
+                PairStep.Welcome -> Welcome(onScan = { lan { vm.go(PairStep.Scan) } }, onManual = { vm.go(PairStep.Manual) }, onBack = onBack)
+                PairStep.Scan -> Scan(ui.scanError, vm::onScanned, vm::cameraFailed, onManual = { vm.go(PairStep.Manual) }, onBack = { vm.go(PairStep.Welcome) })
+                PairStep.Manual -> Manual(ui, vm, onConnect = { lan { vm.connectManually() } }, onBack = { vm.go(PairStep.Welcome) })
                 PairStep.Connecting -> Center {
                     LoadingIndicator(Modifier.size(72.dp))
                     Spacer(Modifier.height(24.dp))
@@ -116,6 +121,9 @@ fun PairingScreen(onPaired: () -> Unit, onBack: (() -> Unit)? = null) {
         }
     }
 }
+
+private const val INSTALL_COMMAND = "npm i -g @opencode/cli"
+private const val RUN_COMMANDS = "opencode service set hostname 0.0.0.0\nopencode service start\nopencode pair"
 
 @Composable
 private fun Center(content: @Composable () -> Unit) {
@@ -175,10 +183,13 @@ private fun Welcome(onScan: () -> Unit, onManual: () -> Unit, onBack: (() -> Uni
 @Composable
 private fun SetupHelp() {
     Column(Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("On your computer, start OpenCode 2 listening on your network, then print a pairing code:", style = MaterialTheme.typography.bodyMedium)
-        CodeBlock("npm i -g @opencode/cli\nopencode serve --hostname 0.0.0.0\nopencode pair --url", "sh")
+        Text("On your computer, install OpenCode 2 once:", style = MaterialTheme.typography.bodyMedium)
+        CodeBlock(INSTALL_COMMAND, "sh")
+        Text("Then let the background service listen on your network, start it, and print a pairing code:", style = MaterialTheme.typography.bodyMedium)
+        CodeBlock(RUN_COMMANDS, "sh")
         Text(
-            "Scan the QR it shows. Your phone and computer need to be on the same network or Tailscale.",
+            "Scan the QR it shows, or paste its link under Enter address. Your phone and computer need to be on the same Wi-Fi or Tailscale. " +
+                "If the service was already running, use opencode service restart after the set command.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -186,15 +197,21 @@ private fun SetupHelp() {
 }
 
 @Composable
-private fun Scan(error: String?, onCode: (String) -> Unit, onManual: () -> Unit, onBack: () -> Unit) {
+private fun Scan(error: String?, onCode: (String) -> Unit, onCameraError: (String) -> Unit, onManual: () -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
-    var granted by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
+    fun hasCamera() = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    var granted by remember { mutableStateOf(hasCamera()) }
     var asked by remember { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it; asked = true }
-    LaunchedEffect(Unit) { if (!granted) launcher.launch(Manifest.permission.CAMERA) }
+    LaunchedEffect(Unit) { if (!granted) runCatching { launcher.launch(Manifest.permission.CAMERA) }.onFailure { asked = true } }
+    // Coming back from Android settings with the permission turned on starts the camera.
+    LifecycleResumeEffect(Unit) {
+        if (!granted && hasCamera()) granted = true
+        onPauseOrDispose {}
+    }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (granted) QrScanner(onCode, Modifier.fillMaxSize())
+        if (granted) QrScanner(onCode, onCameraError, Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Box(Modifier.size(260.dp).border(4.dp, Color.White.copy(alpha = 0.9f), Radius.xl))
         }
@@ -220,7 +237,7 @@ private fun Scan(error: String?, onCode: (String) -> Unit, onManual: () -> Unit,
 }
 
 @Composable
-private fun Manual(ui: PairUi, vm: PairingViewModel, onBack: () -> Unit) {
+private fun Manual(ui: PairUi, vm: PairingViewModel, onConnect: () -> Unit, onBack: () -> Unit) {
     var reveal by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
@@ -229,7 +246,7 @@ private fun Manual(ui: PairUi, vm: PairingViewModel, onBack: () -> Unit) {
         Text("Enter address", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Use the address OpenCode prints when it starts, and the server password if you set one.",
+            "Paste the link opencode pair prints. Or type your computer's Wi-Fi address with the server password.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -237,33 +254,36 @@ private fun Manual(ui: PairUi, vm: PairingViewModel, onBack: () -> Unit) {
         OutlinedTextField(
             value = ui.address,
             onValueChange = vm::setAddress,
-            label = { Text("Address") },
-            placeholder = { Text("http://100.64.1.2:4096", style = CodeStyle) },
+            label = { Text("Pairing link or address") },
+            placeholder = { Text("192.168.1.20:49374", style = CodeStyle) },
             singleLine = true,
             isError = ui.addressError != null,
-            supportingText = { Text(ui.addressError ?: "Your computer's LAN or Tailscale address and port") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+            supportingText = { Text(ui.addressError ?: "Your computer's Wi-Fi or Tailscale address. The port defaults to ${ServerAddress.DEFAULT_PORT}.") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = if (ui.addressIsLink) ImeAction.Go else ImeAction.Next),
+            keyboardActions = KeyboardActions(onGo = { onConnect() }),
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = ui.password,
-            onValueChange = vm::setPassword,
-            label = { Text("Password") },
-            singleLine = true,
-            isError = ui.passwordError != null,
-            supportingText = { Text(ui.passwordError ?: "OPENCODE_SERVER_PASSWORD, or a pairing token") },
-            visualTransformation = if (reveal) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = {
-                IconButton(onClick = { reveal = !reveal }) { Sym(if (reveal) Ic.visibilityOff else Ic.visibility, if (reveal) "Hide password" else "Show password") }
-            },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { vm.connectManually() }),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        if (!ui.addressIsLink) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = ui.password,
+                onValueChange = vm::setPassword,
+                label = { Text("Password") },
+                singleLine = true,
+                isError = ui.passwordError != null,
+                supportingText = { Text(ui.passwordError ?: "The server password. Not needed with a pairing link.") },
+                visualTransformation = if (reveal) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { reveal = !reveal }) { Sym(if (reveal) Ic.visibilityOff else Ic.visibility, if (reveal) "Hide password" else "Show password") }
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { onConnect() }),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         Spacer(Modifier.height(24.dp))
         Button(
-            onClick = vm::connectManually,
+            onClick = onConnect,
             modifier = Modifier.fillMaxWidth().height(ButtonDefaults.MediumContainerHeight),
             shapes = ButtonDefaults.shapes(),
         ) { Text("Connect", style = MaterialTheme.typography.titleMedium) }
@@ -280,10 +300,10 @@ private fun OldVersion(version: String, onBack: () -> Unit) {
         Spacer(Modifier.height(8.dp))
         Text("FlowPilot needs OpenCode 2. Update it on your computer:", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
         Spacer(Modifier.height(16.dp))
-        CodeBlock("npm i -g @opencode/cli", "sh")
+        CodeBlock(INSTALL_COMMAND, "sh")
         Spacer(Modifier.height(16.dp))
         Row {
-            TextButton(onClick = { clipboard.setText(AnnotatedString("npm i -g @opencode/cli")) }) { Text("Copy command") }
+            TextButton(onClick = { clipboard.setText(AnnotatedString(INSTALL_COMMAND)) }) { Text("Copy command") }
             TextButton(onClick = onBack) { Text("Back") }
         }
     }

@@ -129,7 +129,7 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
             if (!chat.running && chat.error != null && !feedHasError) add(Row0.RunError(chat.error!!))
             chat.permissions.forEach { add(Row0.Permission(it)) }
             chat.forms.forEach { add(Row0.Question(it)) }
-        }.asReversed()
+        }.distinctBy { it.key }.asReversed() // A repeated key crashes LazyColumn; keep the first.
     }
 
     val list = rememberLazyListState()

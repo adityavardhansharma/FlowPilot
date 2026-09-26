@@ -9,6 +9,7 @@ import dev.flowpilot.core.api.StreamSignal
 import dev.flowpilot.core.api.events
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,7 +31,8 @@ class ServerConnection(val server: SavedServer, secret: String, parent: Coroutin
     val client = OpenCodeClient(ServerEndpoint(server.baseUrl, secret))
     val ops = ProjectOps(client)
 
-    private val scope = CoroutineScope(parent.coroutineContext + Job(parent.coroutineContext[Job]))
+    // Supervised, so one failed background refresh never takes the event stream down with it.
+    private val scope = CoroutineScope(parent.coroutineContext + SupervisorJob(parent.coroutineContext[Job]))
     private val _state = MutableStateFlow(LinkState.Connecting)
     val state: StateFlow<LinkState> = _state.asStateFlow()
 
@@ -48,8 +50,19 @@ class ServerConnection(val server: SavedServer, secret: String, parent: Coroutin
     private var home: String? = null
     private var scratch: String? = null
 
-    init {
-        scope.launch {
+    private var stream: Job? = null
+
+    init { startStream() }
+
+    /** Reopens the stream now instead of waiting out the backoff, for example after network access was granted. */
+    fun retryNow() {
+        if (_state.value == LinkState.Online) return
+        startStream()
+    }
+
+    private fun startStream() {
+        stream?.cancel()
+        stream = scope.launch {
             client.events().collect { signal ->
                 when (signal) {
                     StreamSignal.Connected -> {

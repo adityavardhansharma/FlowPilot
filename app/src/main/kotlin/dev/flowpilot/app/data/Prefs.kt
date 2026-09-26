@@ -2,22 +2,30 @@ package dev.flowpilot.app.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dev.flowpilot.core.api.ModelRef
 import dev.flowpilot.core.api.OpenCodeJson
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
+import java.io.IOException
 
-private val Context.store: DataStore<Preferences> by preferencesDataStore(name = "flowpilot")
+// A corrupt or unreadable file starts over empty instead of crashing every launch.
+private val Context.store: DataStore<Preferences> by preferencesDataStore(
+    name = "flowpilot",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+)
 
 /** A paired computer. The secret is sealed by [SecretBox]; only the ciphertext is stored. */
 @Serializable
@@ -42,6 +50,8 @@ data class Settings(
 /** Everything FlowPilot remembers on the phone, in one DataStore. */
 class Prefs(private val context: Context) {
     private val ds get() = context.store
+    private val data: Flow<Preferences>
+        get() = ds.data.catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
 
     private object K {
         val servers = stringPreferencesKey("servers")
@@ -63,13 +73,13 @@ class Prefs(private val context: Context) {
     private val serverList = ListSerializer(SavedServer.serializer())
     private val refList = ListSerializer(ModelRef.serializer())
 
-    val servers: Flow<List<SavedServer>> = ds.data.map { p ->
+    val servers: Flow<List<SavedServer>> = data.map { p ->
         p[K.servers]?.let { runCatching { OpenCodeJson.decodeFromString(serverList, it) }.getOrNull() }.orEmpty()
     }.distinctUntilChanged()
 
-    val currentServerId: Flow<String?> = ds.data.map { it[K.current] }.distinctUntilChanged()
+    val currentServerId: Flow<String?> = data.map { it[K.current] }.distinctUntilChanged()
 
-    val settings: Flow<Settings> = ds.data.map { p ->
+    val settings: Flow<Settings> = data.map { p ->
         Settings(
             themeMode = p[K.theme]?.let { v -> ThemeMode.entries.firstOrNull { it.name == v } } ?: ThemeMode.System,
             dynamicColor = p[K.dynamic] ?: false,
@@ -107,7 +117,7 @@ class Prefs(private val context: Context) {
         }
     }
 
-    fun pinned(server: String): Flow<Set<String>> = ds.data.map { it[K.pinned(server)].orEmpty() }.distinctUntilChanged()
+    fun pinned(server: String): Flow<Set<String>> = data.map { it[K.pinned(server)].orEmpty() }.distinctUntilChanged()
 
     suspend fun togglePin(server: String, session: String) = ds.edit { p ->
         val cur = p[K.pinned(server)].orEmpty()
@@ -118,7 +128,7 @@ class Prefs(private val context: Context) {
      * Model visibility. A model is visible when it was shown explicitly, or when it was never hidden and
      * [ModelVisibility.defaultVisible] says so. Keys are `provider/model`.
      */
-    fun visibility(server: String): Flow<ModelVisibility> = ds.data.map {
+    fun visibility(server: String): Flow<ModelVisibility> = data.map {
         ModelVisibility(hidden = it[K.hidden(server)].orEmpty(), shown = it[K.shown(server)].orEmpty())
     }.distinctUntilChanged()
 
@@ -129,11 +139,11 @@ class Prefs(private val context: Context) {
         p[K.shown(server)] = if (visible) shown + keys else shown - keys.toSet()
     }
 
-    fun recentModels(server: String): Flow<List<ModelRef>> = ds.data.map { p ->
+    fun recentModels(server: String): Flow<List<ModelRef>> = data.map { p ->
         p[K.recent(server)]?.let { runCatching { OpenCodeJson.decodeFromString(refList, it) }.getOrNull() }.orEmpty()
     }.distinctUntilChanged()
 
-    fun lastModel(server: String): Flow<ModelRef?> = ds.data.map { p ->
+    fun lastModel(server: String): Flow<ModelRef?> = data.map { p ->
         p[K.lastModel(server)]?.let { runCatching { OpenCodeJson.decodeFromString(ModelRef.serializer(), it) }.getOrNull() }
     }.distinctUntilChanged()
 
@@ -144,15 +154,15 @@ class Prefs(private val context: Context) {
         p[K.lastModel(server)] = OpenCodeJson.encodeToString(ModelRef.serializer(), ref)
     }
 
-    fun lastAgent(server: String): Flow<String?> = ds.data.map { it[K.lastAgent(server)] }.distinctUntilChanged()
+    fun lastAgent(server: String): Flow<String?> = data.map { it[K.lastAgent(server)] }.distinctUntilChanged()
     suspend fun useAgent(server: String, agent: String) = ds.edit { it[K.lastAgent(server)] = agent }
 
-    fun lastChat(server: String): Flow<String?> = ds.data.map { it[K.lastChat(server)] }.distinctUntilChanged()
+    fun lastChat(server: String): Flow<String?> = data.map { it[K.lastChat(server)] }.distinctUntilChanged()
     suspend fun setLastChat(server: String, session: String?) = ds.edit { p ->
         if (session == null) p.remove(K.lastChat(server)) else p[K.lastChat(server)] = session
     }
 
-    suspend fun draft(session: String): String = ds.data.first()[K.draft(session)].orEmpty()
+    suspend fun draft(session: String): String = data.first()[K.draft(session)].orEmpty()
     suspend fun saveDraft(session: String, text: String) = ds.edit { p ->
         if (text.isBlank()) p.remove(K.draft(session)) else p[K.draft(session)] = text
     }

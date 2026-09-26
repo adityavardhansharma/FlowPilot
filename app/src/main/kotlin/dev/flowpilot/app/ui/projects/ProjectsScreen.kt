@@ -57,7 +57,7 @@ fun ProjectsScreen(vm: HomeViewModel, contentPadding: PaddingValues, onStartIn: 
         item(span = { GridItemSpan(maxLineSpan) }) {
             Text("Projects", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(vertical = 8.dp))
         }
-        items(projects, key = { it.id }) { p -> ProjectCard(p, counts[p.id] ?: 0, home) { onStartIn(p.canonical) } }
+        items(projects.distinctBy { it.id }, key = { it.id }) { p -> ProjectCard(p, counts[p.id] ?: 0, home) { onStartIn(p.canonical) } }
     }
 }
 

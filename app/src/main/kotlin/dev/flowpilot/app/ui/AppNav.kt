@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -20,6 +21,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,6 +31,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -37,6 +42,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import dev.flowpilot.app.data.CrashLog
 import dev.flowpilot.app.data.ServerConnection
 import dev.flowpilot.app.ui.chat.ChatScreen
 import dev.flowpilot.app.ui.components.CenteredLoading
@@ -74,6 +80,29 @@ fun AppNav() {
 
     val nav = rememberNavController()
     var resumed by rememberSaveable { mutableStateOf(false) }
+    val lan = rememberLocalNetworkAccess()
+
+    // Android 17 blocks LAN requests until local network access is granted; ask once per launch, then reconnect.
+    LaunchedEffect(conn?.server?.id) {
+        val c = conn ?: return@LaunchedEffect
+        if (!LocalNetwork.granted(g.context)) lan { c.retryNow() }
+    }
+
+    // Show what went wrong last time, so a crash can be reported instead of silently repeating.
+    val context = LocalContext.current
+    var lastCrash by remember { mutableStateOf(CrashLog.read(context)) }
+    lastCrash?.let { report ->
+        val clipboard = LocalClipboardManager.current
+        AlertDialog(
+            onDismissRequest = { CrashLog.clear(context); lastCrash = null },
+            title = { Text("FlowPilot closed unexpectedly") },
+            text = { Text("Copy the details to include them in a bug report.") },
+            confirmButton = {
+                TextButton(onClick = { clipboard.setText(AnnotatedString(report)); CrashLog.clear(context); lastCrash = null }) { Text("Copy details") }
+            },
+            dismissButton = { TextButton(onClick = { CrashLog.clear(context); lastCrash = null }) { Text("Dismiss") } },
+        )
+    }
 
     // Losing the last computer sends you back to pairing; pairing the first one lands on Home.
     LaunchedEffect(conn == null) {

@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 
 /** Manual dependency graph. One instance per process, owned by [dev.flowpilot.app.FlowPilotApp]. */
 class AppGraph(context: Context) {
+    val context: Context = context.applicationContext
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, e -> Log.w("FlowPilot", "background work failed", e) })
     val prefs = Prefs(context)
     val cache = Cache(context)
@@ -28,15 +29,24 @@ class AppGraph(context: Context) {
 
     init {
         scope.launch {
-            combine(prefs.servers, prefs.currentServerId) { list, id -> list.firstOrNull { it.id == id } ?: list.lastOrNull() }
-                .collect { server ->
-                    val cur = _connection.value
-                    if (cur?.server?.id != server?.id || cur?.server?.sealedSecret != server?.sealedSecret) {
-                        cur?.close()
-                        _connection.value = server?.let { s -> SecretBox.open(s.sealedSecret)?.let { ServerConnection(s, it, scope) } }
+            try {
+                combine(prefs.servers, prefs.currentServerId) { list, id -> list.firstOrNull { it.id == id } ?: list.lastOrNull() }
+                    .collect { server ->
+                        val cur = _connection.value
+                        if (cur?.server?.id != server?.id || cur?.server?.sealedSecret != server?.sealedSecret) {
+                            cur?.close()
+                            _connection.value = server?.let { s ->
+                                runCatching { SecretBox.open(s.sealedSecret)?.let { ServerConnection(s, it, scope) } }
+                                    .onFailure { e -> Log.w("FlowPilot", "couldn't open saved server", e) }
+                                    .getOrNull()
+                            }
+                        }
+                        _ready.value = true
                     }
-                    _ready.value = true
-                }
+            } finally {
+                // Never leave the splash screen up forever, even if reading settings failed.
+                _ready.value = true
+            }
         }
     }
 }

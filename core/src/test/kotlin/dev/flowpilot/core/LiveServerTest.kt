@@ -22,11 +22,15 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.nio.file.Files
 
 /**
- * Runs against a real `opencode serve` when OPENCODE_URL and OPENCODE_PASSWORD are set; skipped otherwise.
- * `OPENCODE_PASSWORD=pw opencode serve --port 4199` then `OPENCODE_URL=http://127.0.0.1:4199 OPENCODE_PASSWORD=pw ./gradlew :core:test`.
+ * Runs against a real OpenCode 2 server when OPENCODE_URL and OPENCODE_PASSWORD are set; skipped otherwise.
+ * `opencode service start`, then redeem a code from `opencode pair` for a token and run
+ * `OPENCODE_URL=http://127.0.0.1:49374 OPENCODE_PASSWORD=<token> ./gradlew :core:test`.
  */
 class LiveServerTest {
     private val url = System.getenv("OPENCODE_URL")
@@ -73,5 +77,39 @@ class LiveServerTest {
         val (messages, _) = client.messages(session.id)
         assertTrue(ChatReducer.entriesFrom(messages).isNotEmpty())
         client.deleteSession(session.id)
+    }
+
+    /** Every other route the app calls, plus the pairing flow the QR code drives. */
+    @Test fun homeInboxAndPairing() = runBlocking {
+        assumeTrue(url != null && pw != null)
+        val client = OpenCodeClient(ServerEndpoint(url!!, pw!!))
+        val dir = Files.createTempDirectory("fp-live-home").toString()
+        val session = client.createSession(CreateSessionBody(location = Location(dir)))
+        try {
+            assertTrue(client.projects().any { it.id == session.projectID })
+            client.activeSessions()
+            client.defaultModel(dir)
+            assertTrue(client.sessions(search = "zzz-no-such-chat").data.isEmpty())
+            client.permissions(session.id)
+            client.forms(session.id)
+            client.inbox(session.id)
+            client.pendingPermissions(dir)
+            client.pendingForms(dir)
+            client.markViewed(session.id, System.currentTimeMillis())
+
+            // What `opencode pair` does, then what the phone does with the scanned link.
+            val raw = client.send(
+                okhttp3.Request.Builder().url(client.url("api/pair")).post(ByteArray(0).toRequestBody(null)).build(),
+            ).use { it.body.string() }
+            val code = dev.flowpilot.core.api.OpenCodeJson.parseToJsonElement(raw).jsonObject["code"]!!.jsonPrimitive.content
+            val link = "${url.trimEnd('/')}/auth/connect/$code"
+            val paired = OpenCodeClient(OpenCodeClient.redeemPairingLink(link))
+            assertTrue(paired.info().version.startsWith("2."))
+            // Links are single-use.
+            val reused = runCatching { OpenCodeClient.redeemPairingLink(link) }.exceptionOrNull()
+            assertTrue(reused is dev.flowpilot.core.api.ApiException.Http && reused.code == 401)
+        } finally {
+            client.deleteSession(session.id)
+        }
     }
 }
