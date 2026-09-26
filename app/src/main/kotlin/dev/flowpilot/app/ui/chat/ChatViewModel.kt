@@ -103,7 +103,15 @@ class ChatViewModel(
             viewModelScope.launch { loadCatalog(directory) }
             viewModelScope.launch { runCatching { conn.client.projects() }.getOrNull()?.firstOrNull { it.canonical == directory }?.let { p -> _ui.update { it.copy(projectName = p.displayName) } } }
         }
-        viewModelScope.launch { conn.reconnects.drop(1).collect { if (sid != null) load(silent = true) } }
+        viewModelScope.launch {
+            conn.reconnects.drop(1).collect {
+                when {
+                    sid != null -> load(silent = true)
+                    // A new chat whose model and agent lists failed to load gets them once the computer is back.
+                    _ui.value.models.isEmpty() || _ui.value.agents.isEmpty() -> loadCatalog(_ui.value.directory)
+                }
+            }
+        }
     }
 
     private fun follow(id: String) {

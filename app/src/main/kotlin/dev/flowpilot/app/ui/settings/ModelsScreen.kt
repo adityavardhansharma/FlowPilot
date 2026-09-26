@@ -57,8 +57,14 @@ fun ModelsScreen(conn: ServerConnection, onBack: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(conn) {
-        runCatching { conn.client.models() }.onSuccess { models = it }.onFailure { error = it.friendly() }
+    var attempt by remember { mutableStateOf(0) }
+    val reconnects by conn.reconnects.collectAsStateWithLifecycle()
+    // Loads again on Retry and whenever the stream reconnects, so a blip doesn't leave the screen stuck on an error.
+    LaunchedEffect(conn, attempt, reconnects) {
+        if (models == null) error = null
+        runCatching { conn.client.models() }
+            .onSuccess { models = it; error = null }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; if (models == null) error = it.friendly() }
     }
     fun visible(m: Model) = vis.isVisible(m.key, ChatUi.defaultVisible(m))
     fun set(keys: Collection<String>, v: Boolean) = scope.launch { g.prefs.setVisible(conn.server.id, keys, v) }
@@ -68,7 +74,10 @@ fun ModelsScreen(conn: ServerConnection, onBack: () -> Unit) {
     }) { padding ->
         val list = models
         when {
-            error != null -> EmptyState("Couldn't load models", body = error, icon = Ic.error, modifier = Modifier.padding(padding))
+            error != null -> EmptyState(
+                "Couldn't load models", body = error, icon = Ic.error, modifier = Modifier.padding(padding),
+                action = "Retry", onAction = { error = null; attempt++ },
+            )
             list == null -> Column(Modifier.padding(padding)) { CenteredLoading() }
             list.isEmpty() -> EmptyState("No models yet", body = "Connect a provider in OpenCode on your computer.", icon = Ic.autoAwesome, modifier = Modifier.padding(padding))
             else -> {

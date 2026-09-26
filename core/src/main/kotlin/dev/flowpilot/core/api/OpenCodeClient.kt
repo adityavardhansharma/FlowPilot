@@ -1,6 +1,9 @@
 package dev.flowpilot.core.api
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -60,8 +63,11 @@ class OpenCodeClient(
         .addInterceptor { chain -> chain.proceed(chain.request().newBuilder().header("Authorization", auth).build()) }
         .build()
 
-    /** A client for long-lived streams: no read timeout. */
-    val streamingHttp: OkHttpClient = http.newBuilder().readTimeout(0, TimeUnit.SECONDS).build()
+    /**
+     * A client for long-lived streams. The server sends a heartbeat comment every 15 seconds, so a read that
+     * waits 45 seconds means the connection died silently (Wi-Fi switch, phone asleep) and must be reopened.
+     */
+    val streamingHttp: OkHttpClient = http.newBuilder().readTimeout(STREAM_READ_TIMEOUT_S, TimeUnit.SECONDS).build()
 
     fun url(path: String, query: Map<String, String?> = emptyMap(), directory: String? = null): HttpUrl {
         val b = endpoint.url.newBuilder().addPathSegments(path.trimStart('/'))
@@ -88,11 +94,15 @@ class OpenCodeClient(
 
     suspend fun rename(id: String, title: String) { patchUnit("api/session/$id", RenameBody(title)) }
 
-    suspend fun deleteSession(id: String) { send(Request.Builder().url(url("api/session/$id")).delete().build()).close() }
+    suspend fun deleteSession(id: String) { call(Request.Builder().url(url("api/session/$id")).delete().build()) }
 
     /** Messages newest first; pass [cursor] for older pages. */
     suspend fun messages(sessionID: String, cursor: String? = null, limit: Int = 40): Pair<List<JsonObject>, Cursor> {
         val raw = getRaw("api/session/$sessionID/message", mapOf("order" to "desc", "limit" to "$limit", "cursor" to cursor))
+        return withContext(Dispatchers.Default) { parseMessages(raw) }
+    }
+
+    private fun parseMessages(raw: String): Pair<List<JsonObject>, Cursor> {
         val obj = json.parseToJsonElement(raw).jsonObject
         val data = obj["data"]?.jsonArray?.map { it.jsonObject } ?: emptyList()
         val cur = obj["cursor"]?.let { json.decodeFromJsonElement(Cursor.serializer(), it) } ?: Cursor()
@@ -109,7 +119,7 @@ class OpenCodeClient(
     suspend fun inbox(sessionID: String): List<InboxItem> = get<DataEnvelope<List<InboxItem>>>("api/session/$sessionID/inbox").data
 
     suspend fun cancelInbox(sessionID: String, inboxID: String) {
-        send(Request.Builder().url(url("api/session/$sessionID/inbox/$inboxID")).delete().build()).close()
+        call(Request.Builder().url(url("api/session/$sessionID/inbox/$inboxID")).delete().build())
     }
 
     suspend fun setModel(sessionID: String, model: ModelRef) { postUnit("api/session/$sessionID/model", ModelBody(model)) }
@@ -134,7 +144,7 @@ class OpenCodeClient(
     }
 
     suspend fun cancelForm(sessionID: String, formID: String) {
-        send(Request.Builder().url(url("api/session/$sessionID/form/$formID")).delete().build()).close()
+        call(Request.Builder().url(url("api/session/$sessionID/form/$formID")).delete().build())
     }
 
     // ---- catalog ----
@@ -155,7 +165,7 @@ class OpenCodeClient(
             .url(url("api/experimental/fs/write", mapOf("path" to path), directory))
             .post(content.toByteArray().toRequestBody(OCTET))
             .build()
-        send(req).close()
+        call(req)
     }
 
     suspend fun startShell(command: String, cwd: String, timeoutMs: Int? = null): ShellInfo =
@@ -167,28 +177,68 @@ class OpenCodeClient(
         get<Located<ShellOutput>>("api/shell/$id/output", mapOf("cursor" to "$cursor", "limit" to "65536"), directory).data
 
     // ---- plumbing ----
-    internal suspend inline fun <reified T> get(path: String, query: Map<String, String?> = emptyMap(), directory: String? = null): T =
-        decode(serializer(), getRaw(path, query, directory))
+    // Every read of a response body, and every JSON parse, runs off the caller's thread. Callers are view models
+    // on the main thread, and OkHttp reads the body from the socket lazily: on Android a large response read
+    // there throws NetworkOnMainThreadException.
+
+    internal suspend inline fun <reified T> get(path: String, query: Map<String, String?> = emptyMap(), directory: String? = null): T {
+        val s = serializer<T>()
+        val raw = getRaw(path, query, directory)
+        return decodeAsync(s, raw)
+    }
 
     suspend fun getRaw(path: String, query: Map<String, String?> = emptyMap(), directory: String? = null): String =
-        send(Request.Builder().url(url(path, query, directory)).header("Accept", "application/json").get().build()).use { it.body.string() }
+        call(Request.Builder().url(url(path, query, directory)).header("Accept", "application/json").get().build())
 
     internal suspend inline fun <reified B, reified T> post(path: String, body: B, directory: String? = null): T {
+        val s = serializer<T>()
         val req = Request.Builder().url(url(path, directory = directory)).post(json.encodeToString(serializer<B>(), body).toRequestBody(JSON)).build()
-        return decode(serializer(), send(req).use { it.body.string() })
+        return decodeAsync(s, call(req))
     }
 
     internal suspend inline fun <reified B> postUnit(path: String, body: B) {
-        send(Request.Builder().url(url(path)).post(json.encodeToString(serializer<B>(), body).toRequestBody(JSON)).build()).close()
+        call(Request.Builder().url(url(path)).post(json.encodeToString(serializer<B>(), body).toRequestBody(JSON)).build())
     }
 
     internal suspend inline fun <reified B> patchUnit(path: String, body: B) {
-        send(Request.Builder().url(url(path)).patch(json.encodeToString(serializer<B>(), body).toRequestBody(JSON)).build()).close()
+        call(Request.Builder().url(url(path)).patch(json.encodeToString(serializer<B>(), body).toRequestBody(JSON)).build())
     }
 
     fun <T> decode(s: KSerializer<T>, raw: String): T = json.decodeFromString(s, raw)
 
-    suspend fun send(request: Request): Response {
+    suspend fun <T> decodeAsync(s: KSerializer<T>, raw: String): T = withContext(Dispatchers.Default) { decode(s, raw) }
+
+    /**
+     * Sends [request] and returns the whole body as text, doing all network I/O on [Dispatchers.IO].
+     * A GET that couldn't reach the server is tried once more, which rides out a Wi-Fi blip or a stale pooled connection.
+     */
+    suspend fun call(request: Request): String = withContext(Dispatchers.IO) {
+        val attempts = if (request.method == "GET") 2 else 1
+        var failure: ApiException.Unreachable? = null
+        repeat(attempts) { i ->
+            try {
+                return@withContext readBody(request)
+            } catch (e: ApiException.Unreachable) {
+                failure = e
+                if (i + 1 < attempts) delay(400)
+            }
+        }
+        throw failure!!
+    }
+
+    private suspend fun readBody(request: Request): String = try {
+        sendBlockingBody(request).use { it.body.string() }
+    } catch (e: ApiException) {
+        throw e
+    } catch (e: IOException) {
+        // The connection dropped while the body was streaming in.
+        throw ApiException.Unreachable(e)
+    }
+
+    /** The raw response, for callers that stream it. Read its body off the main thread, or use [call]. */
+    suspend fun send(request: Request): Response = withContext(Dispatchers.IO) { sendBlockingBody(request) }
+
+    private suspend fun sendBlockingBody(request: Request): Response {
         val response = try {
             http.newCall(request).await()
         } catch (e: IOException) {
@@ -204,6 +254,7 @@ class OpenCodeClient(
     }
 
     companion object {
+        const val STREAM_READ_TIMEOUT_S = 45L
         val JSON = "application/json".toMediaType()
         val OCTET = "application/octet-stream".toMediaType()
 
@@ -211,7 +262,7 @@ class OpenCodeClient(
          * Redeems a pairing link printed by `opencode pair` (`http://host:port/auth/connect/CODE`)
          * and returns the endpoint with its 30-day token.
          */
-        suspend fun redeemPairingLink(link: String, client: OkHttpClient = OkHttpClient()): ServerEndpoint {
+        suspend fun redeemPairingLink(link: String, client: OkHttpClient = OkHttpClient()): ServerEndpoint = withContext(Dispatchers.IO) {
             val parsed = PairingLink.parse(link) ?: throw IllegalArgumentException("That code isn't an OpenCode pairing link.")
             val req = Request.Builder().url(parsed.redeemUrl).header("Accept", "application/json").get().build()
             val response = try { client.newCall(req).await() } catch (e: IOException) { throw ApiException.Unreachable(e) }
@@ -219,7 +270,7 @@ class OpenCodeClient(
                 if (it.code == 404 || it.code == 401 || it.code == 410) throw ApiException.Http(it.code, "This pairing code expired or was already used. Run opencode pair again.")
                 if (!it.isSuccessful) throw ApiException.Http(it.code, it.body.string())
                 val token = OpenCodeJson.decodeFromString(PairResponse.serializer(), it.body.string()).token
-                return ServerEndpoint(parsed.baseUrl, token)
+                ServerEndpoint(parsed.baseUrl, token)
             }
         }
     }

@@ -40,6 +40,8 @@ class HomeViewModel(private val graph: AppGraph, val conn: ServerConnection) : V
     val pinned = graph.prefs.pinned(conn.server.id)
     private val serverId = conn.server.id
     private var refreshJob: Job? = null
+    private var retryJob: Job? = null
+    private var failures = 0
     private val queries = MutableStateFlow("")
 
     init {
@@ -93,11 +95,23 @@ class HomeViewModel(private val graph: AppGraph, val conn: ServerConnection) : V
                         firstLoad = false, refreshing = false, error = null,
                     )
                 }
+                failures = 0
+                retryJob?.cancel()
                 graph.cache.writeHome(serverId, HomeSnapshot(page.data, projects, page.cursor.next))
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _ui.update { it.copy(firstLoad = false, refreshing = false, error = e.friendly()) }
+                scheduleRetry()
             }
         }
+    }
+
+    /** Keeps trying in the background while offline: 2s, 4s, 8s… capped at 30s. A reconnect also refreshes. */
+    private fun scheduleRetry() {
+        if (retryJob?.isActive == true) return
+        val wait = minOf(30_000L, 2_000L shl minOf(failures, 4))
+        failures++
+        retryJob = viewModelScope.launch { delay(wait); refresh(silent = true) }
     }
 
     fun loadMore() {

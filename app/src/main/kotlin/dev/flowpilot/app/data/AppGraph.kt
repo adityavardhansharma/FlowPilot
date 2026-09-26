@@ -1,7 +1,12 @@
 package dev.flowpilot.app.data
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.util.Log
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +52,29 @@ class AppGraph(context: Context) {
                 // Never leave the splash screen up forever, even if reading settings failed.
                 _ready.value = true
             }
+        }
+        watchNetwork()
+        watchForeground()
+    }
+
+    /** A new or restored network (Wi-Fi back, switched networks) means the old stream is dead; reopen it now. */
+    private fun watchNetwork() {
+        runCatching {
+            val cm = context.getSystemService(ConnectivityManager::class.java) ?: return
+            cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) { _connection.value?.retryNow(force = true) }
+            })
+        }.onFailure { Log.w("FlowPilot", "couldn't watch the network", it) }
+    }
+
+    /** Coming back to the app after a while: reconnect straight away instead of waiting out the backoff. */
+    private fun watchForeground() {
+        scope.launch(Dispatchers.Main) {
+            runCatching {
+                ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+                    override fun onStart(owner: LifecycleOwner) { _connection.value?.retryNow(force = true) }
+                })
+            }.onFailure { Log.w("FlowPilot", "couldn't watch the app lifecycle", it) }
         }
     }
 }

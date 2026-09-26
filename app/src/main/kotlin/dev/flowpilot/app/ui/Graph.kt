@@ -18,5 +18,7 @@ fun Throwable.friendly(): String = when (this) {
     }
     is dev.flowpilot.core.api.ApiException -> message ?: "Something went wrong."
     is java.io.IOException -> "Can't reach your computer. Check that OpenCode is running, then retry."
-    else -> message ?: "Something went wrong."
+    is kotlinx.serialization.SerializationException -> "Your computer sent something FlowPilot didn't understand. Update OpenCode and FlowPilot, then retry."
+    // Name the error so a report says what actually failed, instead of a bare "Something went wrong".
+    else -> message?.takeIf { it.isNotBlank() }?.let { "Something went wrong: $it" } ?: "Something went wrong (${this::class.java.simpleName})."
 }
