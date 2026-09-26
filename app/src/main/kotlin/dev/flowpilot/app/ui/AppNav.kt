@@ -89,14 +89,15 @@ fun AppNav() {
         }
     }
 
+    val motion = MaterialTheme.motionScheme
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
         NavHost(
             navController = nav,
             startDestination = if (conn == null) Routes.PAIR else Routes.MAIN,
-            enterTransition = { slideInHorizontally(MaterialTheme.motionScheme.defaultSpatialSpec()) { it / 4 } + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) },
-            exitTransition = { fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) },
-            popEnterTransition = { fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) },
-            popExitTransition = { slideOutHorizontally(MaterialTheme.motionScheme.defaultSpatialSpec()) { it / 4 } + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) },
+            enterTransition = { slideInHorizontally(motion.defaultSpatialSpec()) { it / 4 } + fadeIn(motion.defaultEffectsSpec()) },
+            exitTransition = { fadeOut(motion.fastEffectsSpec()) },
+            popEnterTransition = { fadeIn(motion.defaultEffectsSpec()) },
+            popExitTransition = { slideOutHorizontally(motion.defaultSpatialSpec()) { it / 4 } + fadeOut(motion.fastEffectsSpec()) },
         ) {
             composable(Routes.PAIR) {
                 PairingScreen(onPaired = { nav.navigate(Routes.MAIN) { popUpTo(0) } })

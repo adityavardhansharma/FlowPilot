@@ -86,9 +86,10 @@ fun PairingScreen(onPaired: () -> Unit, onBack: (() -> Unit)? = null) {
     BackHandler(enabled = ui.step == PairStep.Scan || ui.step == PairStep.Manual) { vm.go(PairStep.Welcome) }
 
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
+        val motion = MaterialTheme.motionScheme
         AnimatedContent(
             targetState = ui.step,
-            transitionSpec = { fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) togetherWith fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) },
+            transitionSpec = { fadeIn(motion.defaultEffectsSpec()) togetherWith fadeOut(motion.fastEffectsSpec()) },
             label = "pair",
         ) { step ->
             when (step) {

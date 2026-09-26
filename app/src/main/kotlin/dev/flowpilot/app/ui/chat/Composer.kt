@@ -169,9 +169,10 @@ private fun SendControl(hasText: Boolean, running: Boolean, enabled: Boolean, on
         running -> 1
         else -> 0
     }
+    val motion = MaterialTheme.motionScheme
     AnimatedContent(
         targetState = mode,
-        transitionSpec = { (scaleIn(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeIn()) togetherWith (scaleOut() + fadeOut()) },
+        transitionSpec = { (scaleIn(motion.fastSpatialSpec()) + fadeIn()) togetherWith (scaleOut() + fadeOut()) },
         label = "send",
     ) { m ->
         when (m) {

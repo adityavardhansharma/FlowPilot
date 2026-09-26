@@ -206,7 +206,7 @@ private val projectShapes by lazy {
 @Composable
 fun ProjectShape(name: String, size: Dp = 40.dp, muted: Boolean = false) {
     val h = (name.hashCode() and 0x7fffffff)
-    val shape = remember(name) { projectShapes[h % projectShapes.size].toShape() }
+    val shape = projectShapes[h % projectShapes.size].toShape()
     val scheme = MaterialTheme.colorScheme
     val (bg, fg) = when {
         muted -> scheme.surfaceContainerHighest to scheme.onSurfaceVariant

@@ -196,22 +196,8 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
                         WorkingPill(chat.runStartedAt, chat.needsYou)
                     }
                 }
-                AnimatedVisibility(
-                    !atBottom,
-                    enter = scaleIn() + fadeIn(), exit = scaleOut() + fadeOut(),
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 12.dp),
-                ) {
-                    Surface(
-                        onClick = { scope.launch { list.animateScrollToItem(0) } },
-                        shape = MaterialTheme.shapes.extraLarge,
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        shadowElevation = 3.dp,
-                    ) {
-                        Row(Modifier.height(40.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Sym(Ic.jump, "Jump to latest", size = 20.dp)
-                            if (unseen > 0) { Spacer(Modifier.width(6.dp)); Text("$unseen new", style = MaterialTheme.typography.labelLarge) }
-                        }
-                    }
+                JumpToLatest(!atBottom, unseen, Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 12.dp)) {
+                    scope.launch { list.animateScrollToItem(0) }
                 }
             }
             QueuedChips(chat.queued, onEdit = vm::editQueued, onCancel = vm::cancelQueued)
@@ -284,6 +270,23 @@ private fun ChatRow(row: Row0, ui: ChatUi, vm: ChatViewModel) {
             )
         }
         Row0.Older -> if (ui.loadingOlder) LoadingRow() else Spacer(Modifier.height(1.dp))
+    }
+}
+
+@Composable
+private fun JumpToLatest(visible: Boolean, unseen: Int, modifier: Modifier, onClick: () -> Unit) {
+    AnimatedVisibility(visible, enter = scaleIn() + fadeIn(), exit = scaleOut() + fadeOut(), modifier = modifier) {
+        Surface(
+            onClick = onClick,
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            shadowElevation = 3.dp,
+        ) {
+            Row(Modifier.height(40.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Sym(Ic.jump, "Jump to latest", size = 20.dp)
+                if (unseen > 0) { Spacer(Modifier.width(6.dp)); Text("$unseen new", style = MaterialTheme.typography.labelLarge) }
+            }
+        }
     }
 }
 
