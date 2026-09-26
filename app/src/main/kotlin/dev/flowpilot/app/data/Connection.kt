@@ -54,13 +54,23 @@ class ServerConnection(val server: SavedServer, secret: String, parent: Coroutin
 
     init { startStream() }
 
-    /** Reopens the stream now instead of waiting out the backoff, for example after network access was granted. */
-    fun retryNow() {
-        if (_state.value == LinkState.Online) return
+    private var lastStart = 0L
+
+    /**
+     * Reopens the stream now instead of waiting out the backoff, for example after network access was granted.
+     * [force] also replaces a stream that looks online, for when the network changed under it and it may be dead.
+     */
+    @Synchronized
+    fun retryNow(force: Boolean = false) {
+        if (_state.value == LinkState.Online && !force) return
+        // Several triggers often fire together (network back and app foregrounded); one restart is enough.
+        if (System.currentTimeMillis() - lastStart < 2_000) return
         startStream()
     }
 
+    @Synchronized
     private fun startStream() {
+        lastStart = System.currentTimeMillis()
         stream?.cancel()
         stream = scope.launch {
             client.events().collect { signal ->
