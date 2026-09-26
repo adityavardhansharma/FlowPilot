@@ -85,16 +85,16 @@ class ChatViewModel(
 
     init {
         viewModelScope.launch {
-            draft.value = graph.prefs.draft(sessionID ?: "new:$directory")
-            draft.drop(1).debounce(300).collect { graph.prefs.saveDraft(sid ?: "new:${_ui.value.directory}", it) }
+            draft.value = runCatching { graph.prefs.draft(sessionID ?: "new:$directory") }.getOrDefault("")
+            draft.drop(1).debounce(300).collect { runCatching { graph.prefs.saveDraft(sid ?: "new:${_ui.value.directory}", it) } }
         }
         viewModelScope.launch { graph.prefs.visibility(server).collect { v -> _ui.update { it.copy(visibility = v) } } }
         viewModelScope.launch { graph.prefs.recentModels(server).collect { r -> _ui.update { it.copy(recent = r) } } }
         if (sessionID != null) {
-            viewModelScope.launch { graph.prefs.setLastChat(server, sessionID) }
+            viewModelScope.launch { runCatching { graph.prefs.setLastChat(server, sessionID) } }
             viewModelScope.launch {
-                graph.cache.readMessages(server, sessionID)?.let { cached ->
-                    _ui.update { it.copy(chat = it.chat.copy(entries = ChatReducer.entriesFrom(cached)), loading = false) }
+                graph.cache.readMessages(server, sessionID)?.let { cached -> runCatching { ChatReducer.entriesFrom(cached) }.getOrNull() }?.let { entries ->
+                    _ui.update { it.copy(chat = it.chat.copy(entries = entries), loading = false) }
                 }
                 load()
             }
@@ -110,7 +110,7 @@ class ChatViewModel(
         eventsJob?.cancel()
         eventsJob = viewModelScope.launch {
             conn.events.collect { e ->
-                _ui.update { u -> u.copy(chat = ChatReducer.reduce(u.chat, e)) }
+                _ui.update { u -> u.copy(chat = runCatching { ChatReducer.reduce(u.chat, e) }.getOrDefault(u.chat)) }
                 if (e.sessionID == id && (e.type == "session.execution.succeeded" || e.type == "session.execution.failed" || e.type == "session.execution.interrupted")) {
                     markViewed()
                     saveCache()
@@ -257,7 +257,7 @@ class ChatViewModel(
     fun selectAgent(agent: String) {
         _ui.update { it.copy(agent = agent) }
         viewModelScope.launch {
-            graph.prefs.useAgent(server, agent)
+            runCatching { graph.prefs.useAgent(server, agent) }
             sid?.let { id -> runCatching { conn.client.setAgent(id, agent) }.onFailure { e -> _ui.update { it.copy(message = e.friendly()) } } }
         }
     }
@@ -265,7 +265,7 @@ class ChatViewModel(
     fun selectModel(ref: ModelRef) {
         _ui.update { it.copy(model = ref) }
         viewModelScope.launch {
-            graph.prefs.useModel(server, ref)
+            runCatching { graph.prefs.useModel(server, ref) }
             sid?.let { id -> runCatching { conn.client.setModel(id, ref) }.onFailure { e -> _ui.update { it.copy(message = e.friendly()) } } }
         }
     }

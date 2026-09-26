@@ -84,7 +84,7 @@ fun ModelPickerSheet(
                 }
                 groups.forEach { (provider, models) ->
                     item("h$provider") { SectionHeader(provider.replaceFirstChar { it.uppercase() }) }
-                    items(models.sortedBy { it.name }, key = { it.key }) { m -> ModelRow(m, selected, pick) }
+                    items(models.distinctBy { it.key }.sortedBy { it.name }, key = { it.key }) { m -> ModelRow(m, selected, pick) }
                 }
                 if (filtered.isEmpty()) item("empty") {
                     Text(

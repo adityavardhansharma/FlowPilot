@@ -147,7 +147,7 @@ Networking: plain `http://` to a LAN IP needs a `network_security_config` cleart
 
 1. **"No project" chats.** v2 makes every folder a project, so "No project" has to be a convention. Recommendation: one scratch folder (`~/flowpilot-scratch`), shown in the app as "No project". A folder per chat would also work, but clutters the project list.
 2. **Connection.** Recommendation: LAN + Tailscale with QR pairing for v1, and no cloud relay.
-3. **Background service vs `opencode serve`.** Recommendation: document `opencode service start` (it's always on and survives terminal close), plus `opencode service set hostname 0.0.0.0`. I haven't verified that `set` key yet.
+3. **Background service vs `opencode serve`.** Decided: the app documents the background service, `opencode service set hostname 0.0.0.0`, `opencode service start`, then `opencode pair`. Verified on 2.0.18: the service listens on `0.0.0.0:49374`, and `opencode pair` prints a `http://<lan-ip>:49374/auth/connect/<code>` link and QR. The phone redeems the link at `/auth/connect/:code` (a reused link returns `401 {"_tag":"UnauthorizedError"}`). Android 17 also requires the `ACCESS_LOCAL_NETWORK` runtime permission for any LAN connection when the app targets SDK 37.
 4. **Notifications when a turn finishes while the app is closed.** Recommendation: later. It needs a foreground service or a push relay.
 5. **Supported version.** Recommendation: pin 2.0.x and re-verify on each release, because v2 still labels itself experimental.
 6. **Attachments and voice**: later. `files[]` takes URIs, so image upload needs a design choice.

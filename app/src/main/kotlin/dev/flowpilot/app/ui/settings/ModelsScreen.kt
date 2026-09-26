@@ -83,7 +83,7 @@ fun ModelsScreen(conn: ServerConnection, onBack: () -> Unit) {
                                 TextButton(onClick = { set(ms.map { it.key }, !allOn) }) { Text(if (allOn) "Hide all" else "Show all") }
                             }
                         }
-                        items(ms.sortedBy { it.name }, key = { it.key }) { m ->
+                        items(ms.distinctBy { it.key }.sortedBy { it.name }, key = { it.key }) { m ->
                             val on = visible(m)
                             Row(Modifier.fillMaxWidth().clickable { set(listOf(m.key), !on) }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {

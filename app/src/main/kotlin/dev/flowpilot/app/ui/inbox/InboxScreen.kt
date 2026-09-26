@@ -40,7 +40,7 @@ fun InboxScreen(conn: ServerConnection, contentPadding: PaddingValues, onOpenCha
         modifier = Modifier.fillMaxSize(),
     ) {
         item("title") { Text("Inbox", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(vertical = 8.dp)) }
-        items(asks, key = { it.id }) { ask ->
+        items(asks.distinctBy { it.id }, key = { it.id }) { ask ->
             val title = sessions[ask.sessionID]?.title?.takeIf { it.isNotBlank() } ?: "Chat"
             val fail: (Throwable) -> Unit = { showMessage("Couldn't answer. ${it.friendly()}") }
             androidx.compose.foundation.layout.Column(Modifier.animateItem()) {
