@@ -1,0 +1,13 @@
+name: probe
+on: push
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for a in com/android/tools/build/gradle androidx/compose/compose-bom androidx/compose/material3/material3 androidx/activity/activity-compose androidx/lifecycle/lifecycle-viewmodel-compose androidx/lifecycle/lifecycle-runtime-compose androidx/navigation/navigation-compose androidx/datastore/datastore-preferences androidx/core/core-ktx androidx/camera/camera-camera2 androidx/camera/camera-lifecycle androidx/camera/camera-view com/google/mlkit/barcode-scanning androidx/compose/material3/material3-adaptive-navigation-suite androidx/security/security-crypto androidx/core/core-splashscreen; do
+            echo "$a: $(curl -s https://dl.google.com/dl/android/maven2/$a/maven-metadata.xml | grep -o '<version>[^<]*' | sed 's/<version>//' | tail -6 | tr '\n' ' ')"
+          done
+          echo "sdk: $ANDROID_HOME"; ls $ANDROID_HOME/platforms $ANDROID_HOME/build-tools || true
+          curl -s https://dl.google.com/dl/android/maven2/androidx/compose/material3/material3/1.5.0-alpha29/material3-1.5.0-alpha29.module | grep -o '"org.gradle.[a-z.]*": *"[^"]*"\|"version": *{[^}]*}' | sort -u | head -40
+          curl -sL https://dl.google.com/dl/android/maven2/androidx/compose/material3/material3-android/1.5.0-alpha29/material3-android-1.5.0-alpha29.aar -o m3.aar && unzip -p m3.aar META-INF/com/android/build/gradle/aar-metadata.properties
