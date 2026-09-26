@@ -1,0 +1,44 @@
+data: {"id":"evt_0db6eadf3001jyYEvgZ3E6jhAn","type":"server.connected","data":{}}
+
+: heartbeat
+
+data: {"id":"evt_0db6eb1e2001uVT1X72lWxuuN2","created":1790387859938,"type":"session.inbox.enqueued","location":{"directory":"/home/me/scratch"},"data":{"inboxID":"msg_0db6eb1e0001EqnumuXaFwoxh5","sessionID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","item":{"type":"user","payload":{"text":"Say hello in five words."},"delivery":"steer"}},"durable":{"aggregateID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","seq":1,"version":1}}
+
+data: {"id":"evt_0db6eb1e6001T4YjH9N33rG8fp","created":1790387859942,"type":"session.execution.started","data":{"sessionID":"ses_f2491d1c5ffeJH21SQ91XzwOpg"},"durable":{"aggregateID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","seq":2,"version":1}}
+
+data: {"id":"evt_0db6eb208001ki1UTiAYUtePxf","created":1790387859976,"metadata":{"instructions":{"initial":true}},"type":"session.instructions.updated","location":{"directory":"/home/me/scratch"},"data":{"sessionID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","delta":{"core/environment":"3b69a23364e1f5a28a166c049653e074845d5d2bfed2400c7663672e7f68e7fe","core/date":"ccc05888c7388ecb78c9d5b32915755a9f6614cc67704f84eb9c0dc0bc9a9e2e","core/codemode":"616a7ad8b8e40e8a71eab238dfbbe9eaf0f4a9e6fdad853226d075bfe602e1e6","core/skill-guidance":"22d527959b337d6833f6569195e5e7a82f4b1aa6d35396a6fc98d4568287f1ac"}},"durable":{"aggregateID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","seq":3,"version":2}}
+
+data: {"id":"evt_0db6eb20b001DrxST4efO8b4Cs","created":1790387859979,"type":"session.inbox.delivered","location":{"directory":"/home/me/scratch"},"data":{"sessionID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","inboxID":"msg_0db6eb1e0001EqnumuXaFwoxh5"},"durable":{"aggregateID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","seq":4,"version":1}}
+
+data: {"id":"evt_0db6eb328001LSmAqRPUsabdct","created":1790387860264,"type":"session.step.started","location":{"directory":"/home/me/scratch"},"data":{"sessionID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","agent":"build","model":{"id":"space-bunny-free","providerID":"opencode"},"assistantMessageID":"msg_0db6eb222001dMjcpz4je24ptk","started":1790387860015},"durable":{"aggregateID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","seq":5,"version":1}}
+
+data: {"id":"evt_0db6eb32c001qMsIgNxCf5HdZA","created":1790387860268,"type":"session.step.failed","location":{"directory":"/home/me/scratch"},"data":{"sessionID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","assistantMessageID":"msg_0db6eb222001dMjcpz4je24ptk","error":{"type":"provider.auth","message":"Provider request failed with HTTP 403","status":403}},"durable":{"aggregateID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","seq":6,"version":1}}
+
+data: {"id":"evt_0db6eb331001o6iFQO5ihM2E3H","created":1790387860273,"type":"session.execution.failed","data":{"sessionID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","error":{"type":"provider.auth","message":"Provider request failed with HTTP 403","status":403}},"durable":{"aggregateID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","seq":7,"version":1}}
+
+: heartbeat
+
+data: {"id":"evt_0db6f1ef3001aXBO02t4ykSb6j","created":1790387887859,"type":"session.renamed","location":{"directory":"/home/me/scratch"},"data":{"sessionID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","title":"Renamed"},"durable":{"aggregateID":"ses_f2491d1c5ffeJH21SQ91XzwOpg","seq":8,"version":1}}
+
+data: {"id":"evt_0db6f1ef7001djPZ7CDn2RIzWy","created":1790387887863,"type":"project.updated","location":{"directory":"/home/me/scratch"},"data":{"id":"51f9ce2fe7d6d491bf742a5f8650a2f040a12367","canonical":"/home/me/scratch","time":{"created":1790387826237,"updated":1790387826237,"active":1790387887862},"sandboxes":[]}}
+
+data: {"id":"evt_0db6f1f18001B0de5ZMZvqNxuJ","created":1790387887896,"type":"project.updated","location":{"directory":"/root"},"data":{"id":"cd31f2124f23b5c0556ebda23ab6bff6bdc91712","canonical":"/root","time":{"created":1790387887894,"updated":1790387887894,"active":1790387887896},"sandboxes":[]}}
+
+data: {"id":"evt_0db6f1f8c001AtLvuz7yFnGZM2","created":1790387888012,"type":"integration.updated","location":{"directory":"/root"},"data":{}}
+
+data: {"id":"evt_0db6f1f93001Lg6rzX3jSth4vK","created":1790387888019,"type":"provider.updated","location":{"directory":"/root"},"data":{}}
+
+data: {"id":"evt_0db6f1f9b0011plGvAw6OLF2RI","created":1790387888027,"type":"model.updated","location":{"directory":"/root"},"data":{}}
+
+data: {"id":"evt_0db6f1f9d0015ixUWoCRckb7Lo","created":1790387888029,"type":"agent.updated","location":{"directory":"/root"},"data":{}}
+
+data: {"id":"evt_0db6f1f9d002H3sbmuNw2x4Wu2","created":1790387888029,"type":"command.updated","location":{"directory":"/root"},"data":{}}
+
+data: {"id":"evt_0db6f1f9e001jicKOhCfjJ3OmI","created":1790387888030,"type":"skill.updated","location":{"directory":"/root"},"data":{}}
+
+data: {"id":"evt_0db6f1fa1001oamEAq3Gs1xv6W","created":1790387888033,"type":"websearch.updated","location":{"directory":"/root"},"data":{}}
+
+data: {"id":"evt_0db6f1fa2002OkNumtDS1l5rgx","created":1790387888034,"type":"reference.updated","location":{"directory":"/root"},"data":{}}
+
+data: {"id":"evt_0db6f1fa3001k5pIiFA7ddHCCb","created":1790387888035,"type":"plugin.updated","location":{"directory":"/root"},"data":{}}
+
