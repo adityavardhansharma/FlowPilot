@@ -2,6 +2,8 @@
 
 package dev.flowpilot.app.ui.pairing
 
+import dev.flowpilot.core.sync.catching
+
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
@@ -203,7 +205,7 @@ private fun Scan(error: String?, onCode: (String) -> Unit, onCameraError: (Strin
     var granted by remember { mutableStateOf(hasCamera()) }
     var asked by remember { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it; asked = true }
-    LaunchedEffect(Unit) { if (!granted) runCatching { launcher.launch(Manifest.permission.CAMERA) }.onFailure { asked = true } }
+    LaunchedEffect(Unit) { if (!granted) catching { launcher.launch(Manifest.permission.CAMERA) }.onFailure { asked = true } }
     // Coming back from Android settings with the permission turned on starts the camera.
     LifecycleResumeEffect(Unit) {
         if (!granted && hasCamera()) granted = true

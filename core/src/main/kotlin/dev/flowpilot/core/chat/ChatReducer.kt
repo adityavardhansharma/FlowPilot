@@ -1,5 +1,7 @@
 package dev.flowpilot.core.chat
 
+import dev.flowpilot.core.sync.catching
+
 import dev.flowpilot.core.api.ApiError
 import dev.flowpilot.core.api.Form
 import dev.flowpilot.core.api.InboxItem
@@ -42,7 +44,7 @@ object ChatReducer {
                 id = id, created = created,
                 agent = m.str("agent"),
                 model = m.obj("model")?.let(::modelRef),
-                parts = m.arr("content")?.mapIndexedNotNull { i, c -> (c as? JsonObject)?.let { partFrom(i, it) } } ?: emptyList(),
+                parts = m.arr("content")?.mapIndexedNotNull { i, c -> (c as? JsonObject)?.let { partFrom(i, it, m.str("finish") == null && m.obj("time")?.long("completed") == null) } } ?: emptyList(),
                 finish = m.str("finish"),
                 error = m.obj("error")?.let(::error),
                 cost = m.double("cost"),
@@ -67,8 +69,8 @@ object ChatReducer {
         }
     }
 
-    private fun partFrom(index: Int, c: JsonObject): Part? = when (c.str("type")) {
-        "text" -> Part.Text(index, c.str("text").orEmpty(), streaming = false)
+    private fun partFrom(index: Int, c: JsonObject, streaming: Boolean): Part? = when (c.str("type")) {
+        "text" -> Part.Text(index, c.str("text").orEmpty(), streaming = streaming)
         "reasoning" -> Part.Reasoning(index, c.str("text").orEmpty(), false, c.obj("time")?.long("created"), c.obj("time")?.long("completed"))
         "tool" -> {
             val state = c.obj("state")
@@ -130,10 +132,12 @@ object ChatReducer {
 
     fun reduce(state: ChatState, e: ServerEvent): ChatState {
         val d = e.data
+        if (e.id != null && (e.type == "session.compaction.started" || e.type == "session.execution.interrupted") && state.entries.any { it.id == e.id }) return state
         if (e.type.startsWith("session.") && e.sessionID != state.sessionID) return state
         if ((e.type.startsWith("permission.") || e.type.startsWith("form.")) && d.str("sessionID") != state.sessionID &&
             d.obj("form")?.str("sessionID") != state.sessionID
         ) return state
+        if (e.seq != null && e.aggregateID == state.sessionID && state.lastSeq != null && e.seq <= state.lastSeq) return state
         val s = if (e.seq != null && e.aggregateID == state.sessionID) state.copy(lastSeq = maxOf(state.lastSeq ?: 0, e.seq)) else state
         val now = e.created ?: System.currentTimeMillis()
         val msgId = d.str("assistantMessageID")
@@ -185,14 +189,14 @@ object ChatReducer {
 
             "session.text.started" -> s.withPart(msgId, now, "t${d.int("ordinal")}", create = { Part.Text(d.int("ordinal") ?: 0, "", streaming = true) })
             "session.text.delta" -> s.withPart(msgId, now, "t${d.int("ordinal")}", { Part.Text(d.int("ordinal") ?: 0, "", true) }) {
-                (it as Part.Text).copy(text = it.text + d.str("delta").orEmpty())
+                (it as Part.Text).let { p -> if (p.streaming) p.copy(text = p.text + d.str("delta").orEmpty()) else p }
             }
             "session.text.ended" -> s.withPart(msgId, now, "t${d.int("ordinal")}", { Part.Text(d.int("ordinal") ?: 0, "", true) }) {
                 (it as Part.Text).copy(text = d.str("text") ?: it.text, streaming = false)
             }
             "session.reasoning.started" -> s.withPart(msgId, now, "r${d.int("ordinal")}", create = { Part.Reasoning(d.int("ordinal") ?: 0, "", true, now, null) })
             "session.reasoning.delta" -> s.withPart(msgId, now, "r${d.int("ordinal")}", { Part.Reasoning(d.int("ordinal") ?: 0, "", true, now, null) }) {
-                (it as Part.Reasoning).copy(text = it.text + d.str("delta").orEmpty())
+                (it as Part.Reasoning).let { p -> if (p.streaming) p.copy(text = p.text + d.str("delta").orEmpty()) else p }
             }
             "session.reasoning.ended" -> s.withPart(msgId, now, "r${d.int("ordinal")}", { Part.Reasoning(d.int("ordinal") ?: 0, "", true, now, null) }) {
                 (it as Part.Reasoning).copy(text = d.str("text") ?: it.text, streaming = false, completed = now)
@@ -218,12 +222,12 @@ object ChatReducer {
             "session.compaction.failed" -> s.replaceLastMarker(MarkerKind.Compaction, "Compaction failed")
 
             "permission.asked" -> {
-                val req = runCatching { OpenCodeJson.decodeFromJsonElement(PermissionRequest.serializer(), d) }.getOrNull() ?: return s
+                val req = catching { OpenCodeJson.decodeFromJsonElement(PermissionRequest.serializer(), d) }.getOrNull() ?: return s
                 s.copy(permissions = s.permissions.filter { it.id != req.id } + req)
             }
             "permission.replied" -> s.copy(permissions = s.permissions.filter { it.id != d.str("requestID") })
             "form.created" -> {
-                val form = d.obj("form")?.let { runCatching { OpenCodeJson.decodeFromJsonElement(Form.serializer(), it) }.getOrNull() } ?: return s
+                val form = d.obj("form")?.let { catching { OpenCodeJson.decodeFromJsonElement(Form.serializer(), it) }.getOrNull() } ?: return s
                 s.copy(forms = s.forms.filter { it.id != form.id } + form)
             }
             "form.replied", "form.cancelled" -> s.copy(forms = s.forms.filter { it.id != d.str("id") })
@@ -297,7 +301,7 @@ object ChatReducer {
 
     fun error(o: JsonObject) = ApiError(o.str("type") ?: "unknown", o.str("message").orEmpty(), o.int("status"))
 
-    private fun tokens(o: JsonObject) = runCatching { OpenCodeJson.decodeFromJsonElement(Tokens.serializer(), o) }.getOrNull()
+    private fun tokens(o: JsonObject) = catching { OpenCodeJson.decodeFromJsonElement(Tokens.serializer(), o) }.getOrNull()
 }
 
 internal fun JsonObject.str(k: String): String? = (this[k] as? JsonPrimitive)?.takeIf { it !is JsonNull && it.isString }?.content

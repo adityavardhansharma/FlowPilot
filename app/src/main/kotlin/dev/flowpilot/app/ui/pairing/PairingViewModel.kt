@@ -63,6 +63,7 @@ class PairingViewModel(private val graph: AppGraph) : ViewModel() {
             try {
                 finish(OpenCodeClient.redeemPairingLink(raw))
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _ui.update { it.copy(step = PairStep.Scan, scanError = describe(e, PairingLink.parse(raw)?.baseUrl)) }
             }
         }
@@ -81,6 +82,7 @@ class PairingViewModel(private val graph: AppGraph) : ViewModel() {
                 try {
                     finish(OpenCodeClient.redeemPairingLink(input))
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     _ui.update { it.copy(step = PairStep.Manual, addressError = describe(e, link.baseUrl)) }
                 }
             }
@@ -109,6 +111,7 @@ class PairingViewModel(private val graph: AppGraph) : ViewModel() {
             } catch (e: ApiException.Unauthorized) {
                 _ui.update { it.copy(step = PairStep.Manual, passwordError = "Wrong password. Easier: run opencode pair and paste its link above.") }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _ui.update { it.copy(step = PairStep.Manual, addressError = describe(e, base)) }
             }
         }

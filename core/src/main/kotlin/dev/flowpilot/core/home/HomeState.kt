@@ -1,5 +1,7 @@
 package dev.flowpilot.core.home
 
+import dev.flowpilot.core.sync.catching
+
 import dev.flowpilot.core.api.Project
 import dev.flowpilot.core.api.ServerEvent
 import dev.flowpilot.core.api.Session
@@ -105,7 +107,7 @@ data class HomeState(
             "permission.replied" -> ask(d.s("sessionID"), d.s("requestID"), false)
             "form.created" -> ask((d["form"] as? JsonObject)?.s("sessionID"), (d["form"] as? JsonObject)?.s("id"), true)
             "form.replied", "form.cancelled" -> ask(d.s("sessionID"), d.s("id"), false)
-            "project.updated" -> runCatching {
+            "project.updated" -> catching {
                 val p = dev.flowpilot.core.api.OpenCodeJson.decodeFromJsonElement(Project.serializer(), d)
                 copy(projects = projects + (p.id to p))
             }.getOrDefault(this)

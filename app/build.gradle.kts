@@ -1,4 +1,5 @@
 plugins {
+    alias(libs.plugins.ksp)
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
@@ -9,6 +10,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         applicationId = "dev.flowpilot.app"
         minSdk = 26
         targetSdk = 37
@@ -57,6 +59,13 @@ android {
 
 dependencies {
     implementation(project(":core"))
+    implementation(libs.room.runtime)
+    ksp(libs.room.compiler)
+    testImplementation(libs.junit)
+    testImplementation(libs.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -81,3 +90,5 @@ dependencies {
     implementation(libs.camera.view)
     implementation(libs.mlkit.barcode)
 }
+
+ksp { arg("room.schemaLocation", "$projectDir/schemas") }

@@ -64,7 +64,7 @@ import dev.flowpilot.core.chat.ToolDescriber
  */
 @Composable
 fun NewChatSheet(conn: ServerConnection, onStart: (String?) -> Unit, onAllProjects: () -> Unit, onDismiss: () -> Unit) {
-    val vm: NewChatViewModel = viewModel(key = "new-chat:${conn.server.id}") { NewChatViewModel(conn) }
+    val vm: NewChatViewModel = viewModel(key = "new-chat:${conn.identity}") { NewChatViewModel(conn) }
     val ui by vm.ui.collectAsStateWithLifecycle()
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = ui.step != NewChatStep.Pick)
     BackHandler(enabled = ui.step != NewChatStep.Pick) { vm.go(NewChatStep.Pick) }

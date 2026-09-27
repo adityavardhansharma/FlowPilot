@@ -2,6 +2,8 @@
 
 package dev.flowpilot.app.ui.settings
 
+import dev.flowpilot.core.sync.catching
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -62,7 +64,7 @@ fun ModelsScreen(conn: ServerConnection, onBack: () -> Unit) {
     // Loads again on Retry and whenever the stream reconnects, so a blip doesn't leave the screen stuck on an error.
     LaunchedEffect(conn, attempt, reconnects) {
         if (models == null) error = null
-        runCatching { conn.client.models() }
+        catching { conn.catalog.models() }
             .onSuccess { models = it; error = null }
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; if (models == null) error = it.friendly() }
     }

@@ -1,5 +1,7 @@
 package dev.flowpilot.app.ui.newchat
 
+import dev.flowpilot.core.sync.catching
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.flowpilot.app.data.ServerConnection
@@ -41,15 +43,17 @@ class NewChatViewModel(val conn: ServerConnection) : ViewModel() {
     private val _ui = MutableStateFlow(NewChatUi())
     val ui: StateFlow<NewChatUi> = _ui.asStateFlow()
     private var cloneJob: Job? = null
+    private var browseJob: Job? = null
+    private var browseGeneration = 0L
 
     init {
         viewModelScope.launch {
-            val projects = runCatching { conn.client.projects() }.getOrDefault(emptyList())
+            val projects = catching { conn.catalog.projects() }.getOrDefault(emptyList())
             val scratch = conn.knownScratch
             _ui.update { it.copy(projects = projects.filterNot { p -> scratch != null && p.canonical.startsWith(scratch) || p.canonical == "/" }, loading = false) }
         }
         viewModelScope.launch {
-            runCatching { conn.homeDir() }.getOrNull()?.let { h -> _ui.update { it.copy(home = h, parent = it.parent ?: h) } }
+            catching { conn.homeDir() }.getOrNull()?.let { h -> _ui.update { it.copy(home = h, parent = it.parent ?: h) } }
         }
     }
 
@@ -69,6 +73,7 @@ class NewChatViewModel(val conn: ServerConnection) : ViewModel() {
                 _ui.update { it.copy(creating = false) }
                 onDone(dir)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _ui.update { it.copy(creating = false, error = e.friendly()) }
             }
         }
@@ -84,7 +89,7 @@ class NewChatViewModel(val conn: ServerConnection) : ViewModel() {
         _ui.update { it.copy(clone = CloneUi(running = true, line = "Starting git clone…"), error = null) }
         cloneJob = viewModelScope.launch {
             try {
-                conn.ops.clone(url, parent).collect { p ->
+                conn.clone(url, parent).collect { p ->
                     when (p) {
                         is ProjectOps.CloneProgress.Running -> _ui.update { it.copy(clone = it.clone.copy(line = p.line, percent = p.percent ?: it.clone.percent)) }
                         is ProjectOps.CloneProgress.Done -> { _ui.update { it.copy(clone = CloneUi()) }; onDone(p.directory) }
@@ -92,6 +97,7 @@ class NewChatViewModel(val conn: ServerConnection) : ViewModel() {
                     }
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _ui.update { it.copy(clone = CloneUi(failed = e.friendly())) }
             }
         }
@@ -105,12 +111,14 @@ class NewChatViewModel(val conn: ServerConnection) : ViewModel() {
     fun closeBrowser() = _ui.update { it.copy(browsing = false) }
 
     fun browse(path: String) {
+        browseJob?.cancel()
+        val generation = ++browseGeneration
         _ui.update { it.copy(browsePath = path, browseLoading = true) }
-        viewModelScope.launch {
-            val entries = runCatching { conn.client.listDir(path) }.getOrDefault(emptyList())
+        browseJob = viewModelScope.launch {
+            val entries = catching { conn.client.listDir(path) }.getOrDefault(emptyList())
                 .filter { it.isDirectory && !it.name.startsWith(".") }
                 .sortedBy { it.name.lowercase() }
-            _ui.update { it.copy(browseEntries = entries, browseLoading = false) }
+            if (generation == browseGeneration) _ui.update { it.copy(browseEntries = entries, browseLoading = false) }
         }
     }
 

@@ -1,5 +1,7 @@
 package dev.flowpilot.core.api
 
+import dev.flowpilot.core.sync.catching
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -59,15 +61,21 @@ class OpenCodeClient(
 
     val http: OkHttpClient = baseClient.newBuilder()
         .connectTimeout(10, TimeUnit.SECONDS)
+        .callTimeout(45, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(false)
         .readTimeout(30, TimeUnit.SECONDS)
-        .addInterceptor { chain -> chain.proceed(chain.request().newBuilder().header("Authorization", auth).build()) }
+        .addInterceptor { chain ->
+            val start = System.nanoTime()
+            try { chain.proceed(chain.request().newBuilder().header("Authorization", auth).build()) }
+            finally { dev.flowpilot.core.sync.Diagnostics.record("http.headers_ms", (System.nanoTime() - start) / 1_000_000) }
+        }
         .build()
 
     /**
      * A client for long-lived streams. The server sends a heartbeat comment every 15 seconds, so a read that
      * waits 45 seconds means the connection died silently (Wi-Fi switch, phone asleep) and must be reopened.
      */
-    val streamingHttp: OkHttpClient = http.newBuilder().readTimeout(STREAM_READ_TIMEOUT_S, TimeUnit.SECONDS).build()
+    val streamingHttp: OkHttpClient = http.newBuilder().callTimeout(0, TimeUnit.SECONDS).readTimeout(STREAM_READ_TIMEOUT_S, TimeUnit.SECONDS).build()
 
     fun url(path: String, query: Map<String, String?> = emptyMap(), directory: String? = null): HttpUrl {
         val b = endpoint.url.newBuilder().addPathSegments(path.trimStart('/'))
@@ -227,7 +235,7 @@ class OpenCodeClient(
     }
 
     private suspend fun readBody(request: Request): String = try {
-        sendBlockingBody(request).use { it.body.string() }
+        http.newCall(request).awaitBody()
     } catch (e: ApiException) {
         throw e
     } catch (e: IOException) {
@@ -246,9 +254,7 @@ class OpenCodeClient(
         }
         if (response.code == 401) { response.close(); throw ApiException.Unauthorized() }
         if (!response.isSuccessful) {
-            val body = response.body.string()
-            response.close()
-            throw ApiException.Http(response.code, body)
+            response.use { throw ApiException.Http(it.code, it.body.string()) }
         }
         return response
     }
@@ -283,7 +289,7 @@ data class PairingLink(val baseUrl: String, val code: String) {
     companion object {
         fun parse(raw: String): PairingLink? {
             val text = raw.trim()
-            val url = runCatching { text.toHttpUrl() }.getOrNull() ?: return null
+            val url = catching { text.toHttpUrl() }.getOrNull() ?: return null
             val segs = url.pathSegments.filter { it.isNotEmpty() }
             val i = segs.indexOf("connect")
             if (i < 1 || segs[i - 1] != "auth" || i + 1 >= segs.size) return null
@@ -296,13 +302,38 @@ data class PairingLink(val baseUrl: String, val code: String) {
 
 suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->
     enqueue(object : Callback {
-        override fun onResponse(call: Call, response: Response) { cont.resume(response) }
+        override fun onResponse(call: Call, response: Response) {
+            cont.resume(response) { _, value, _ -> value.close() }
+        }
         override fun onFailure(call: Call, e: IOException) { if (!cont.isCancelled) cont.resumeWithException(e) }
     })
-    cont.invokeOnCancellation { runCatching { cancel() } }
+    cont.invokeOnCancellation { catching { cancel() } }
 }
 
 internal fun RequestBody.Companion.empty(): RequestBody = ByteArray(0).toRequestBody(null)
 
 @Suppress("unused")
 private fun JsonArray.objects() = map { it.jsonObject }
+
+/** Cancellation owns the call until the entire body has been consumed, not only its headers. */
+private suspend fun Call.awaitBody(): String = suspendCancellableCoroutine { cont ->
+    cont.invokeOnCancellation { cancel() }
+    enqueue(object : Callback {
+        override fun onResponse(call: Call, response: Response) {
+            try {
+                val body = response.use {
+                    if (it.code == 401) throw ApiException.Unauthorized()
+                    val text = it.body.string()
+                    if (!it.isSuccessful) throw ApiException.Http(it.code, text)
+                    text
+                }
+                cont.resume(body)
+            } catch (e: Exception) {
+                if (cont.isActive) cont.resumeWithException(e)
+            }
+        }
+        override fun onFailure(call: Call, e: IOException) {
+            if (cont.isActive) cont.resumeWithException(e)
+        }
+    })
+}

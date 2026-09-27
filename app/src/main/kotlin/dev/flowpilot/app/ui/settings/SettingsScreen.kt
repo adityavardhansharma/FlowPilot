@@ -57,6 +57,7 @@ fun SettingsScreen(onBack: () -> Unit, onPair: () -> Unit, onModels: () -> Unit)
     val current by g.connection.collectAsStateWithLifecycle()
     val settings by g.prefs.settings.collectAsStateWithLifecycle(Settings())
     val scope = rememberCoroutineScope()
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     var forgetting by remember { mutableStateOf<SavedServer?>(null) }
 
     Scaffold(topBar = {
@@ -129,6 +130,10 @@ fun SettingsScreen(onBack: () -> Unit, onPair: () -> Unit, onModels: () -> Unit)
                 Column(Modifier.padding(16.dp)) {
                     Text("FlowPilot ${dev.flowpilot.app.BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyLarge)
                     Text("A phone client for OpenCode 2.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = {
+                        val report = "FlowPilot ${dev.flowpilot.app.BuildConfig.VERSION_NAME}\nServer ${current?.serverVersion?.value ?: "unknown"}\nConnection ${current?.state?.value}\n" + dev.flowpilot.core.sync.Diagnostics.export()
+                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(report))
+                    }) { Text("Copy connection diagnostics") }
                 }
             }
             Spacer(Modifier.padding(PaddingValues(bottom = 24.dp)))

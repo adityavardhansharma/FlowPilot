@@ -158,8 +158,8 @@ fun ServerChip(name: String, state: LinkState, onClick: () -> Unit, modifier: Mo
     var showTrouble by remember { mutableStateOf(false) }
     LaunchedEffect(state) {
         showTrouble = false
-        if (state == LinkState.Reconnecting || state == LinkState.Connecting) { delay(2000); showTrouble = true }
-        if (state == LinkState.Unauthorized) showTrouble = true
+        if (state != LinkState.Online && state != LinkState.Unauthorized) { delay(2000); showTrouble = true }
+        if (state == LinkState.Unauthorized || state == LinkState.Unsupported) showTrouble = true
     }
     val trouble = showTrouble && state != LinkState.Online
     val container = when {
@@ -182,6 +182,9 @@ fun ServerChip(name: String, state: LinkState, onClick: () -> Unit, modifier: Mo
             Text(
                 when {
                     trouble && state == LinkState.Unauthorized -> "Pair again"
+                    trouble && state == LinkState.Unsupported -> "Unsupported server"
+                    trouble && state == LinkState.CatchingUp -> "Catching up"
+                    trouble && state == LinkState.Offline -> "Offline"
                     trouble -> "Reconnecting"
                     else -> name
                 },

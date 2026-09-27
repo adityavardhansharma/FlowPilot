@@ -1,5 +1,7 @@
 package dev.flowpilot.app.data
 
+import dev.flowpilot.core.sync.catching
+
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
@@ -67,14 +69,14 @@ class Prefs(private val context: Context) {
         fun lastModel(server: String) = stringPreferencesKey("last_model.$server")
         fun lastAgent(server: String) = stringPreferencesKey("last_agent.$server")
         fun lastChat(server: String) = stringPreferencesKey("last_chat.$server")
-        fun draft(session: String) = stringPreferencesKey("draft.$session")
+        fun draft(server: String, session: String) = stringPreferencesKey("draft.$server.$session")
     }
 
     private val serverList = ListSerializer(SavedServer.serializer())
     private val refList = ListSerializer(ModelRef.serializer())
 
     val servers: Flow<List<SavedServer>> = data.map { p ->
-        p[K.servers]?.let { runCatching { OpenCodeJson.decodeFromString(serverList, it) }.getOrNull() }.orEmpty()
+        p[K.servers]?.let { catching { OpenCodeJson.decodeFromString(serverList, it) }.getOrNull() }.orEmpty()
     }.distinctUntilChanged()
 
     val currentServerId: Flow<String?> = data.map { it[K.current] }.distinctUntilChanged()
@@ -89,16 +91,19 @@ class Prefs(private val context: Context) {
     }.distinctUntilChanged()
 
     suspend fun saveServer(server: SavedServer, makeCurrent: Boolean = true) = ds.edit { p ->
-        val list = p[K.servers]?.let { runCatching { OpenCodeJson.decodeFromString(serverList, it) }.getOrNull() }.orEmpty()
-        val next = list.filterNot { it.id == server.id || it.baseUrl == server.baseUrl } + server
+        val list = p[K.servers]?.let { catching { OpenCodeJson.decodeFromString(serverList, it) }.getOrNull() }.orEmpty()
+        val existing = list.firstOrNull { it.baseUrl == server.baseUrl }
+        val saved = if (existing == null) server else server.copy(id = existing.id, addedAt = existing.addedAt)
+        val next = list.filterNot { it.id == saved.id || it.baseUrl == saved.baseUrl } + saved
         p[K.servers] = OpenCodeJson.encodeToString(serverList, next)
-        if (makeCurrent) p[K.current] = server.id
+        if (makeCurrent) p[K.current] = saved.id
     }
 
     suspend fun removeServer(id: String) = ds.edit { p ->
-        val list = p[K.servers]?.let { runCatching { OpenCodeJson.decodeFromString(serverList, it) }.getOrNull() }.orEmpty()
+        val list = p[K.servers]?.let { catching { OpenCodeJson.decodeFromString(serverList, it) }.getOrNull() }.orEmpty()
         val next = list.filterNot { it.id == id }
         p[K.servers] = OpenCodeJson.encodeToString(serverList, next)
+        p.asMap().keys.filter { it.name.startsWith("draft.$id.") || it.name in setOf("pinned.$id", "hidden_models.$id", "shown_models.$id", "recent_models.$id", "last_model.$id", "last_agent.$id", "last_chat.$id") }.forEach { p.remove(it) }
         if (p[K.current] == id) {
             val fallback = next.lastOrNull()?.id
             if (fallback != null) p[K.current] = fallback else p.remove(K.current)
@@ -140,15 +145,15 @@ class Prefs(private val context: Context) {
     }
 
     fun recentModels(server: String): Flow<List<ModelRef>> = data.map { p ->
-        p[K.recent(server)]?.let { runCatching { OpenCodeJson.decodeFromString(refList, it) }.getOrNull() }.orEmpty()
+        p[K.recent(server)]?.let { catching { OpenCodeJson.decodeFromString(refList, it) }.getOrNull() }.orEmpty()
     }.distinctUntilChanged()
 
     fun lastModel(server: String): Flow<ModelRef?> = data.map { p ->
-        p[K.lastModel(server)]?.let { runCatching { OpenCodeJson.decodeFromString(ModelRef.serializer(), it) }.getOrNull() }
+        p[K.lastModel(server)]?.let { catching { OpenCodeJson.decodeFromString(ModelRef.serializer(), it) }.getOrNull() }
     }.distinctUntilChanged()
 
     suspend fun useModel(server: String, ref: ModelRef) = ds.edit { p ->
-        val list = p[K.recent(server)]?.let { runCatching { OpenCodeJson.decodeFromString(refList, it) }.getOrNull() }.orEmpty()
+        val list = p[K.recent(server)]?.let { catching { OpenCodeJson.decodeFromString(refList, it) }.getOrNull() }.orEmpty()
         val next = (listOf(ref) + list.filterNot { it.id == ref.id && it.providerID == ref.providerID }).take(3)
         p[K.recent(server)] = OpenCodeJson.encodeToString(refList, next)
         p[K.lastModel(server)] = OpenCodeJson.encodeToString(ModelRef.serializer(), ref)
@@ -162,9 +167,18 @@ class Prefs(private val context: Context) {
         if (session == null) p.remove(K.lastChat(server)) else p[K.lastChat(server)] = session
     }
 
-    suspend fun draft(session: String): String = data.first()[K.draft(session)].orEmpty()
-    suspend fun saveDraft(session: String, text: String) = ds.edit { p ->
-        if (text.isBlank()) p.remove(K.draft(session)) else p[K.draft(session)] = text
+    suspend fun draft(server: String, session: String): String {
+        var result = ""
+        ds.edit { p ->
+            val key = K.draft(server, session)
+            val legacy = stringPreferencesKey("draft.$session")
+            if (p[key] == null && p[K.current] == server) p[legacy]?.let { p[key] = it; p.remove(legacy) }
+            result = p[key].orEmpty()
+        }
+        return result
+    }
+    suspend fun saveDraft(server: String, session: String, text: String) = ds.edit { p ->
+        if (text.isBlank()) p.remove(K.draft(server, session)) else p[K.draft(server, session)] = text
     }
 }
 

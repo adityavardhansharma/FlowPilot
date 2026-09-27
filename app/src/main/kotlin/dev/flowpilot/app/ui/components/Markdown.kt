@@ -21,6 +21,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -83,7 +84,10 @@ object Markdown {
 /** Renders assistant markdown. [streaming] adds the caret after the last block. */
 @Composable
 fun MarkdownText(source: String, modifier: Modifier = Modifier, streaming: Boolean = false, style: TextStyle = MaterialTheme.typography.bodyLarge) {
-    val blocks = remember(source) { MarkdownParser.parse(source) }
+    val parser = remember { dev.flowpilot.core.chat.MarkdownStreamParser() }
+    val blocks by androidx.compose.runtime.produceState<List<dev.flowpilot.core.chat.MdBlock>>(emptyList(), source) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { parser.parse(source) }
+    }
     val colors = MaterialTheme.code
     val link = MaterialTheme.colorScheme.primary
     val codeBg = MaterialTheme.colorScheme.surfaceContainerHighest

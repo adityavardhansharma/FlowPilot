@@ -1,13 +1,13 @@
 package dev.flowpilot.core.api
 
+import dev.flowpilot.core.sync.catching
+
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.retryWhen
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -19,8 +19,10 @@ import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 import kotlin.math.min
+import kotlin.random.Random
 
 /** One frame from `/api/event` or a session log. [data] is left raw so unknown event types never break parsing. */
+@kotlinx.serialization.Serializable
 data class ServerEvent(
     val id: String?,
     val type: String,
@@ -33,7 +35,7 @@ data class ServerEvent(
     val sessionID: String? get() = (data["sessionID"] as? JsonPrimitive)?.contentOrNullSafe() ?: aggregateID
 
     companion object {
-        fun parse(raw: String): ServerEvent? = runCatching {
+        fun parse(raw: String): ServerEvent? = catching {
             val obj = OpenCodeJson.parseToJsonElement(raw).jsonObject
             val durable = obj["durable"] as? JsonObject
             ServerEvent(
@@ -53,6 +55,7 @@ internal fun JsonPrimitive.contentOrNullSafe(): String? = if (this is kotlinx.se
 
 sealed interface StreamSignal {
     /** The stream (re)opened. Anything missed while it was down must be refetched. */
+    data object Connecting : StreamSignal
     data object Connected : StreamSignal
     data class Event(val event: ServerEvent) : StreamSignal
     data class Disconnected(val error: Throwable?) : StreamSignal
@@ -65,35 +68,47 @@ sealed interface StreamSignal {
 fun OpenCodeClient.events(path: String = "api/event", query: Map<String, String?> = emptyMap()): Flow<StreamSignal> = flow {
     var attempt = 0
     while (true) {
-        var sawData = false
+        val started = System.nanoTime()
+        dev.flowpilot.core.sync.Diagnostics.record("stream.connect")
+        emit(StreamSignal.Connecting)
         try {
-            openSse(path, query).collect { signal ->
-                if (signal is StreamSignal.Event) sawData = true
-                emit(signal)
-            }
+            openSse(path, query).collect { emit(it) }
             emit(StreamSignal.Disconnected(null))
-        } catch (e: Throwable) {
+        } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             emit(StreamSignal.Disconnected(e))
+            if (e is ApiException.Unauthorized) return@flow
         }
-        if (sawData) attempt = 0
-        delay(min(30_000L, 500L shl min(attempt, 6)))
-        attempt++
+        if (System.nanoTime() - started >= 30_000_000_000L) attempt = 0
+        val cap = min(30_000L, 500L shl min(attempt, 6))
+        delay(Random.nextLong(cap / 2, cap + 1))
+        attempt = min(attempt + 1, 6)
     }
 }
 
 /** A session's durable log after [afterSeq], then live. Used to catch up an open chat. */
 fun OpenCodeClient.sessionLog(sessionID: String, afterSeq: Long?, follow: Boolean = true): Flow<StreamSignal> =
     openSse("api/experimental/session/$sessionID/log", mapOf("after" to afterSeq?.toString(), "follow" to follow.toString()))
-        .retryWhen { _, attempt -> attempt < 1 }
+
 
 private fun OpenCodeClient.openSse(path: String, query: Map<String, String?>): Flow<StreamSignal> = callbackFlow {
     val request = Request.Builder().url(url(path, query)).header("Accept", "text/event-stream").build()
     val listener = object : EventSourceListener() {
+        private fun offer(source: EventSource, signal: StreamSignal) {
+            if (trySend(signal).isFailure) {
+                dev.flowpilot.core.sync.Diagnostics.record("stream.overflow")
+                channel.close(StreamOverflowException())
+                source.cancel()
+            }
+        }
+
+        override fun onOpen(eventSource: EventSource, response: Response) {
+            offer(eventSource, StreamSignal.Connected)
+        }
+
         override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
             val event = ServerEvent.parse(data) ?: return
-            if (event.type == "server.connected") trySendBlocking(StreamSignal.Connected)
-            trySendBlocking(StreamSignal.Event(event))
+            offer(eventSource, StreamSignal.Event(event))
         }
 
         override fun onClosed(eventSource: EventSource) { channel.close() }
@@ -110,3 +125,5 @@ private fun OpenCodeClient.openSse(path: String, query: Map<String, String?>): F
     val source = EventSources.createFactory(streamingHttp).newEventSource(request, listener)
     awaitClose { source.cancel() }
 }.buffer(capacity = 1024)
+
+class StreamOverflowException : java.io.IOException("Event buffer filled; resynchronization required")

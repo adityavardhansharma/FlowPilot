@@ -39,26 +39,44 @@ class ProjectOps(private val client: OpenCodeClient) {
         data class Failed(val output: String) : CloneProgress
     }
 
-    /** Clones [url] into [parent], streaming git's progress lines. */
-    fun clone(url: String, parent: String, folder: String? = null): Flow<CloneProgress> = flow {
+    @kotlinx.serialization.Serializable
+    data class CloneJob(val shellID: String, val directory: String, val cwd: String)
+
+    /** Reattaches to a persisted shell job; navigation only cancels polling, never starts another clone. */
+    fun clone(
+        url: String,
+        parent: String,
+        folder: String? = null,
+        resume: CloneJob? = null,
+        onStarted: suspend (CloneJob) -> Unit = {},
+    ): Flow<CloneProgress> = flow {
         val name = folder?.takeIf { it.isNotBlank() } ?: repoName(url)
+        require(name != "." && name != ".." && '/' !in name && '\\' !in name) { "Pick a single folder name." }
         val dir = "${parent.trimEnd('/')}/$name"
-        client.writeFile(parent, ".flowpilot-clone", "")
-        val cmd = "rm -f .flowpilot-clone && git clone --progress ${shellQuote(url)} ${shellQuote(name)} 2>&1"
-        val shell = client.startShell(cmd, parent, timeoutMs = 30 * 60 * 1000)
+        val job = resume ?: run {
+            val cmd = "git clone --progress -- ${shellQuote(url)} ${shellQuote(name)} 2>&1"
+            val shell = client.startShell(cmd, parent, timeoutMs = 30 * 60 * 1000)
+            CloneJob(shell.id, dir, parent).also { onStarted(it) }
+        }
         var cursor = 0L
-        var buf = ""
+        val tail = StringBuilder()
         while (true) {
-            val info = client.shell(shell.id, parent)
-            val out = client.shellOutput(shell.id, parent, cursor)
-            if (out.output.isNotEmpty()) {
-                buf += out.output
-                cursor = out.cursor
-                val line = buf.split('\r', '\n').lastOrNull { it.isNotBlank() }.orEmpty()
-                emit(CloneProgress.Running(line, percentOf(line)))
-            }
+            val info = client.shell(job.shellID, job.cwd)
+            do {
+                val out = client.shellOutput(job.shellID, job.cwd, cursor)
+                val advanced = out.cursor > cursor
+                if (out.output.isNotEmpty()) {
+                    tail.append(out.output)
+                    if (tail.length > 8192) tail.delete(0, tail.length - 8192)
+                    val line = tail.toString().split('\r', '\n').lastOrNull { it.isNotBlank() }.orEmpty()
+                    emit(CloneProgress.Running(line, percentOf(line)))
+                }
+                cursor = maxOf(cursor, out.cursor)
+                // Once exited, drain every remaining output page before reporting the result.
+            } while (!info.running && advanced && out.output.isNotEmpty())
             if (!info.running) {
-                if ((info.exit ?: 1.0) == 0.0) emit(CloneProgress.Done(dir)) else emit(CloneProgress.Failed(buf.takeLast(2000)))
+                if ((info.exit ?: 1.0) == 0.0) emit(CloneProgress.Done(job.directory))
+                else emit(CloneProgress.Failed(tail.takeLast(2000).toString()))
                 return@flow
             }
             delay(400)
@@ -70,9 +88,9 @@ class ProjectOps(private val client: OpenCodeClient) {
     /** Runs a short command and waits for it. */
     suspend fun run(command: String, cwd: String, timeoutMs: Long = 60_000): RunResult {
         val shell = client.startShell(command, cwd, timeoutMs.toInt())
-        val deadline = System.currentTimeMillis() + timeoutMs
+        val deadline = System.nanoTime() / 1_000_000 + timeoutMs
         var info = shell
-        while (info.running && System.currentTimeMillis() < deadline) {
+        while (info.running && System.nanoTime() / 1_000_000 < deadline) {
             delay(150)
             info = client.shell(shell.id, cwd)
         }

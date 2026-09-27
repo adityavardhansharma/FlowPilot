@@ -71,7 +71,7 @@ private fun ProjectCard(p: Project, chats: Int, home: String?, onClick: () -> Un
             Text(ToolDescriber.shortPath(tilde(p.canonical, home), 28), style = CodeSmallStyle, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             Spacer(Modifier.height(8.dp))
             val footer = buildList {
-                add(if (chats == 1) "1 chat" else "$chats chats")
+                add(if (chats == 1) "1 loaded chat" else "$chats loaded chats")
                 if (p.time.active > 0) add(Format.relative(p.time.active))
             }.joinToString(" · ")
             Text(footer, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

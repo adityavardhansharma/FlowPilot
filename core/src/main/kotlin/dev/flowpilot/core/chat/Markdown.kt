@@ -116,3 +116,44 @@ object MarkdownParser {
 
     private fun cells(line: String): List<String> = line.trim().removePrefix("|").removeSuffix("|").split('|').map { it.trim() }
 }
+
+/** Settled blocks are parsed once. Only the unfinished tail is reparsed while text grows. */
+class MarkdownStreamParser {
+    private var previous = ""
+    private var scanned = 0
+    private var settledEnd = 0
+    private var fence: String? = null
+    private val settled = ArrayList<MdBlock>()
+    private var result: List<MdBlock> = emptyList()
+    private val opening = Regex("^\\s{0,3}(```+|~~~+)\\s*([\\w+#.-]*)")
+
+    @Synchronized fun parse(raw: String): List<MdBlock> {
+        val source = raw.replace("\r\n", "\n")
+        if (source == previous) return result
+        if (!source.startsWith(previous)) {
+            scanned = 0; settledEnd = 0; fence = null; settled.clear()
+        }
+        var boundary = settledEnd
+        while (true) {
+            val end = source.indexOf('\n', scanned)
+            if (end < 0) break
+            val line = source.substring(scanned, end)
+            val marker = fence
+            if (marker != null) {
+                if (line.trimStart().startsWith(marker)) fence = null
+            } else {
+                val start = opening.find(line)
+                if (start != null) fence = start.groupValues[1]
+                else if (line.isBlank()) boundary = end + 1
+            }
+            scanned = end + 1
+        }
+        if (boundary > settledEnd) {
+            settled += MarkdownParser.parse(source.substring(settledEnd, boundary))
+            settledEnd = boundary
+        }
+        result = settled.toList() + MarkdownParser.parse(source.substring(settledEnd))
+        previous = source
+        return result
+    }
+}
