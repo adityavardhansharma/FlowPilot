@@ -176,4 +176,44 @@ class SessionRepositoryTest {
         gate.complete(Unit); reads.awaitAll()
         resource.invalidate(); assertEquals(2, resource.get())
     }
+
+    @Test fun deletedChatStopsSyncingInsteadOfRetryingForever() = runTest {
+        // A deleted chat answers 404 on every route, so no amount of retrying can succeed.
+        val source = Source().apply { pages = { throw ApiException.Http(404, "SessionNotFoundError") } }
+        val repo = repo(source, Memory(SavedChat(ChatState(id, entries = ChatReducer.entriesFrom(listOf(message()))))))
+        advanceTimeBy(60_000); runCurrent()
+        assertEquals(1, source.cursors.size)
+        assertTrue(repo.state.value.gone)
+        assertFalse(repo.state.value.syncing)
+        assertEquals("old", text(repo)) // The saved copy stays readable.
+
+        repo.invalidate(); advanceTimeBy(60_000); runCurrent() // A reconnect doesn't restart it either.
+        assertEquals(1, source.cursors.size)
+    }
+
+    @Test fun sessionDeletedEventStopsSyncing() = runTest {
+        val source = Source()
+        val repo = repo(source); runCurrent()
+        val before = source.cursors.size
+        repo.accept(event("session.deleted", "\"id\":\"s\""))
+        repo.invalidate(); advanceTimeBy(60_000); runCurrent()
+        assertTrue(repo.state.value.gone)
+        assertFalse(repo.state.value.syncing)
+        assertEquals(before, source.cursors.size)
+    }
+
+    @Test fun unreachableComputerIsRetriedWithBackoff() = runTest {
+        val source = Source().apply { pages = { throw ApiException.Unreachable(java.io.IOException("down")) } }
+        val repo = repo(source)
+        advanceTimeBy(60_000); runCurrent()
+        // Attempts at 0, 2, 6, 14, 30 and 60 seconds: 6, where a fixed 2s delay made 31.
+        assertTrue("made ${source.cursors.size} requests", source.cursors.size in 5..7)
+        assertTrue(repo.state.value.syncing)
+        assertFalse(repo.state.value.gone)
+
+        source.pages = { listOf(message()) to Cursor() }
+        advanceTimeBy(31_000); runCurrent()
+        assertFalse(repo.state.value.syncing)
+        assertNull(repo.state.value.error)
+    }
 }

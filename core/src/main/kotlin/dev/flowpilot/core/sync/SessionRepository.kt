@@ -44,6 +44,8 @@ data class SessionSnapshot(
     val syncing: Boolean = true,
     val loadingOlder: Boolean = false,
     val error: String? = null,
+    /** The chat no longer exists on the computer. Sync has stopped; the saved copy stays readable. */
+    val gone: Boolean = false,
 )
 
 /** One writer per session. Network reads never hold the state lock or block event ingestion. */
@@ -60,6 +62,8 @@ class SessionRepository(
     private var current = SavedChat(ChatState(id))
     private var recovering = true
     @Volatile private var enabled = true
+    @Volatile private var gone = false
+    private var failures = 0
     private var generation = 0L
     private var revision = 0L
     private var dirty = false
@@ -97,7 +101,7 @@ class SessionRepository(
             }
             refreshes.trySend(Unit)
             for (ignored in refreshes) {
-                if (enabled) {
+                if (enabled && !gone) {
                     recoveryJob = scope.launch { recover() }
                     recoveryJob?.join()
                 }
@@ -118,6 +122,7 @@ class SessionRepository(
     }
 
     fun setEnabled(value: Boolean) {
+        if (gone) return
         enabled = value
         if (value) invalidate() else synchronized(lock) {
             recoveryJob?.cancel()
@@ -129,6 +134,7 @@ class SessionRepository(
 
     /** Called before new connection events are distributed, closing the replay/live race. */
     fun invalidate() = synchronized(lock) {
+        if (gone) return@synchronized
         recoveryJob?.cancel()
         flush()
         generation++
@@ -140,7 +146,11 @@ class SessionRepository(
 
     /** Never waits on a screen, disk, or network. Overflow invalidates the whole synchronization attempt. */
     fun accept(event: ServerEvent) = synchronized(lock) {
-        if (!belongs(event)) return@synchronized
+        if (!belongs(event) || gone) return@synchronized
+        if (event.type == "session.deleted") {
+            markGone()
+            return@synchronized
+        }
         if (recovering) {
             if (buffered.size == 4096) {
                 buffered.clear()
@@ -161,6 +171,18 @@ class SessionRepository(
             schedulePublish()
             queueSave()
         }
+    }
+
+    /** Stops syncing for good: every route answers 404 for a deleted chat, so retrying would never end. */
+    private fun markGone() {
+        gone = true
+        recoveryJob?.cancel()
+        generation++
+        recovering = false
+        buffered.clear()
+        localChanges.clear()
+        deltas.clear()
+        _state.value = _state.value.copy(loading = false, syncing = false, gone = true, error = "This chat was deleted on your computer.")
     }
 
     private fun belongs(e: ServerEvent): Boolean = e.sessionID == id ||
@@ -254,6 +276,7 @@ class SessionRepository(
                 }
                 current = current.copy(chat = chat)
                 recovering = false
+                failures = 0
                 _state.value = _state.value.copy(error = null)
                 publish(loading = false)
                 queueSave()
@@ -262,13 +285,19 @@ class SessionRepository(
             refreshDetails(start.first)
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) {
-            synchronized(lock) {
+            val wait = synchronized(lock) {
                 if (generation != start.first) return
+                if (e is ApiException.Http && e.code == 404) {
+                    markGone()
+                    return
+                }
                 // Retain cached/live state. Stay in catch-up mode; don't advance a cursor across a gap.
                 _state.value = _state.value.copy(loading = false, syncing = true, error = e.message)
+                // 2s, 4s, 8s, 16s, then every 30s: an unreachable computer isn't asked every two seconds.
+                minOf(30_000L, 2_000L shl minOf(failures++, 4))
             }
             if (e !is ApiException.Unauthorized) {
-                delay(2_000)
+                delay(wait)
                 refreshes.trySend(Unit)
             }
         }

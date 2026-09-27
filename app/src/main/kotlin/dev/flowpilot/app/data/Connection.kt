@@ -134,18 +134,42 @@ class ServerConnection(val server: SavedServer, secret: String, parent: Coroutin
         }
     }
 
-    fun session(id: String): SessionRepository = sessions.computeIfAbsent(id) {
-        val source = object : SessionSource by ApiSessionSource(client) {
-            override suspend fun running(id: String) = id in catalog.active()
+    private val holders = HashMap<String, Int>()
+    private val watchers = HashMap<String, Job>()
+
+    /**
+     * The chat's single sync owner, shared by every screen showing it. Pair each call with [release]: only chats
+     * on screen stay synced, so a reconnect reloads those instead of every chat opened since launch.
+     */
+    @Synchronized
+    fun session(id: String): SessionRepository {
+        val repo = sessions.getOrPut(id) {
+            val source = object : SessionSource by ApiSessionSource(client) {
+                override suspend fun running(id: String) = id in catalog.active()
+            }
+            SessionRepository(server.id, id, source, cache, scope).also { repo ->
+                repo.setEnabled(streamOnline)
+                watchers[id] = scope.launch { repo.state.collect { updateState() } }
+            }
         }
-        SessionRepository(server.id, id, source, cache, scope).also { repo ->
-            repo.setEnabled(streamOnline)
-            scope.launch { repo.state.collect { updateState() } }
-        }
+        holders[id] = (holders[id] ?: 0) + 1
+        return repo
+    }
+
+    /** The last screen showing this chat went away: save it and stop syncing it. */
+    @Synchronized
+    fun release(id: String) {
+        val left = (holders[id] ?: return) - 1
+        if (left > 0) { holders[id] = left; return }
+        holders.remove(id)
+        watchers.remove(id)?.cancel()
+        sessions.remove(id)?.close()
+        updateState()
     }
 
     private fun updateState() {
-        if (streamOnline) _state.value = if (sessions.values.any { it.state.value.syncing }) LinkState.CatchingUp else LinkState.Online
+        // A deleted chat has stopped syncing for good and must not hold the chip on "Catching up".
+        if (streamOnline) _state.value = if (sessions.values.any { it.state.value.syncing && !it.state.value.gone }) LinkState.CatchingUp else LinkState.Online
     }
 
     @Synchronized fun setForeground(value: Boolean) {

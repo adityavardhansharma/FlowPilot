@@ -74,6 +74,7 @@ data class ChatUi(
 }
 
 /** Presentation and commands. The connection-owned repository is the only chat state writer. */
+@OptIn(FlowPreview::class)
 class ChatViewModel(
     private val graph: AppGraph,
     val conn: ServerConnection,
@@ -102,7 +103,9 @@ class ChatViewModel(
             val saved = catching { graph.prefs.draft(server, draftKey) }.getOrDefault("")
             if (!draftEdited) draft.value = saved
             draftLoaded = true
-            draft.collect { graph.prefs.saveDraft(server, draftKey, it) }
+            // Save once typing pauses, not on every keystroke; onCleared saves the final text. A failed write
+            // must not crash the chat: the draft is still on screen.
+            draft.debounce(300).collect { text -> catching { graph.prefs.saveDraft(server, draftKey, text) } }
         }
         viewModelScope.launch { graph.prefs.visibility(server).collect { v -> _ui.update { it.copy(visibility = v) } } }
         viewModelScope.launch { graph.prefs.recentModels(server).collect { r -> _ui.update { it.copy(recent = r) } } }
@@ -116,6 +119,7 @@ class ChatViewModel(
     }
 
     override fun onCleared() {
+        repository?.let { conn.release(it.id) }
         if (draftLoaded || draftEdited) {
             val key = draftKey
             val text = draft.value
@@ -125,6 +129,7 @@ class ChatViewModel(
 
     private fun follow(id: String) {
         observeJob?.cancel()
+        repository?.let { conn.release(it.id) }
         val repo = conn.session(id)
         repository = repo
         observeJob = viewModelScope.launch {
