@@ -67,11 +67,14 @@ class HomeRepository(
     fun requestRefresh() { refreshes.trySend(Unit) }
 
     fun accept(event: ServerEvent) = synchronized(lock) {
+        // Home ignores streamed text, and journaling it would push real changes out of the 4096-event window
+        // during a refresh, which then gets thrown away and retried.
+        if (event.type.endsWith(".delta")) return@synchronized
         journal.addLast(++revision to event)
         if (journal.size > 4096) journal.removeFirst()
         _state.value = _state.value.reduce(event)
         if (_state.value.stale) requestRefresh()
-        if (!event.type.endsWith(".delta")) save()
+        save()
     }
 
     private suspend fun refresh(): Boolean {

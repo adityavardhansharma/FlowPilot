@@ -52,6 +52,7 @@ import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -101,7 +102,7 @@ fun PairingScreen(onPaired: () -> Unit, onBack: (() -> Unit)? = null) {
             when (step) {
                 // Ask for local network access up front: on Android 17 every LAN request fails without it.
                 PairStep.Welcome -> Welcome(onScan = { lan { vm.go(PairStep.Scan) } }, onManual = { vm.go(PairStep.Manual) }, onBack = onBack)
-                PairStep.Scan -> Scan(ui.scanError, vm::onScanned, vm::cameraFailed, onManual = { vm.go(PairStep.Manual) }, onBack = { vm.go(PairStep.Welcome) })
+                PairStep.Scan -> Scan(ui.scanError, vm::onScanned, onManual = { vm.go(PairStep.Manual) }, onBack = { vm.go(PairStep.Welcome) })
                 PairStep.Manual -> Manual(ui, vm, onConnect = { lan { vm.connectManually() } }, onBack = { vm.go(PairStep.Welcome) })
                 PairStep.Connecting -> Center {
                     LoadingIndicator(Modifier.size(72.dp))
@@ -199,7 +200,7 @@ private fun SetupHelp() {
 }
 
 @Composable
-private fun Scan(error: String?, onCode: (String) -> Unit, onCameraError: (String) -> Unit, onManual: () -> Unit, onBack: () -> Unit) {
+private fun Scan(error: String?, onCode: (String) -> Unit, onManual: () -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
     fun hasCamera() = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
     var granted by remember { mutableStateOf(hasCamera()) }
@@ -211,9 +212,12 @@ private fun Scan(error: String?, onCode: (String) -> Unit, onCameraError: (Strin
         if (!granted && hasCamera()) granted = true
         onPauseOrDispose {}
     }
+    // Camera trouble is local to this screen; Try again restarts the camera from scratch.
+    var cameraError by remember { mutableStateOf<String?>(null) }
+    var attempt by remember { mutableStateOf(0) }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (granted) QrScanner(onCode, onCameraError, Modifier.fillMaxSize())
+        if (granted) key(attempt) { QrScanner(onCode, onError = { cameraError = it }, modifier = Modifier.fillMaxSize()) }
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Box(Modifier.size(260.dp).border(4.dp, Color.White.copy(alpha = 0.9f), Radius.xl))
         }
@@ -226,6 +230,7 @@ private fun Scan(error: String?, onCode: (String) -> Unit, onCameraError: (Strin
         ) {
             val msg = when {
                 !granted && asked -> "FlowPilot needs the camera to scan. You can type the address instead."
+                cameraError != null -> cameraError!!
                 error != null -> error
                 else -> "Point at the QR code from opencode pair"
             }
@@ -233,7 +238,12 @@ private fun Scan(error: String?, onCode: (String) -> Unit, onCameraError: (Strin
                 Text(msg, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp), textAlign = TextAlign.Center)
             }
             Spacer(Modifier.height(16.dp))
-            FilledTonalButton(onClick = onManual) { Text("Enter address") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (granted && cameraError != null) {
+                    Button(onClick = { cameraError = null; attempt++ }) { Text("Try again") }
+                }
+                FilledTonalButton(onClick = onManual) { Text("Enter address") }
+            }
         }
     }
 }
