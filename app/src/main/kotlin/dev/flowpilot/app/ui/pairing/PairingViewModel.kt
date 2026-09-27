@@ -52,7 +52,6 @@ class PairingViewModel(private val graph: AppGraph) : ViewModel() {
     fun go(step: PairStep) = _ui.update { it.copy(step = step, scanError = null) }
     fun setAddress(v: String) = _ui.update { it.copy(address = v, addressError = null) }
     fun setPassword(v: String) = _ui.update { it.copy(password = v, passwordError = null) }
-    fun cameraFailed(message: String) = _ui.update { it.copy(scanError = message) }
 
     /** A QR code was seen. Ignores anything that isn't a pairing link, so random codes don't interrupt. */
     fun onScanned(raw: String) {
