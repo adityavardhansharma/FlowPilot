@@ -2,6 +2,8 @@
 
 package dev.flowpilot.app.ui.chat
 
+import dev.flowpilot.core.sync.catching
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -97,7 +99,7 @@ private sealed interface Row0 {
 @Composable
 fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, onBack: () -> Unit, onManageModels: () -> Unit) {
     val g = graph
-    val vm: ChatViewModel = viewModel(key = "${conn.server.id}:${sessionID ?: "new:$directory"}") { ChatViewModel(g, conn, sessionID, directory) }
+    val vm: ChatViewModel = viewModel(key = "${conn.identity}:${sessionID ?: "new:$directory"}") { ChatViewModel(g, conn, sessionID, directory) }
     val ui by vm.ui.collectAsStateWithLifecycle()
     val draft by vm.draft.collectAsStateWithLifecycle()
     val settings by g.prefs.settings.collectAsStateWithLifecycle(dev.flowpilot.app.data.Settings())
@@ -111,14 +113,18 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
 
     LaunchedEffect(ui.message) { ui.message?.let { snackbar.showSnackbar(it); vm.consumeMessage() } }
     LaunchedEffect(Unit) {
-        if (sessionID == null) { delay(300); runCatching { focus.requestFocus() }; keyboard?.show() }
+        if (sessionID == null) { delay(300); catching { focus.requestFocus() }; keyboard?.show() }
     }
 
     val chat = ui.chat
-    val rows = remember(chat, settings.showReasoning) {
+    val feedCache = remember { dev.flowpilot.core.chat.FeedCache() }
+    val feed by androidx.compose.runtime.produceState<List<dev.flowpilot.core.chat.FeedItem>>(emptyList(), chat.entries, chat.running) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { feedCache.feed(chat) }
+    }
+    val rows = remember(feed, chat.permissions, chat.forms, chat.retry, chat.error, chat.hasOlder, chat.running, settings.showReasoning) {
         buildList<Row0> {
             if (chat.hasOlder) add(Row0.Older)
-            chat.feed().forEach { item ->
+            feed.forEach { item ->
                 if (item is FeedItem.Reasoning && !settings.showReasoning) return@forEach
                 add(Row0.Feed(item))
             }
@@ -172,10 +178,17 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
         containerColor = MaterialTheme.colorScheme.surface,
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
+            if (ui.syncing || (ui.loadError != null && chat.entries.isNotEmpty())) {
+                Text(
+                    if (ui.loadError != null) "Showing saved conversation. ${ui.loadError}" else "Catching up…",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when {
                     ui.loading && chat.entries.isEmpty() -> CenteredLoading()
-                    ui.loadError != null -> EmptyState("Couldn't open this chat", body = ui.loadError, icon = Ic.error, action = "Retry", onAction = { vm.load() })
+                    ui.loadError != null && chat.entries.isEmpty() -> EmptyState("Couldn't open this chat", body = ui.loadError, icon = Ic.error, action = "Retry", onAction = { vm.load() })
                     rows.isEmpty() -> NewChatHero(ui.projectName.ifEmpty { if (directory == null) "No project" else directory.substringAfterLast('/') })
                     else -> LazyColumn(
                         state = list,
@@ -203,7 +216,7 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
             QueuedChips(chat.queued, onEdit = vm::editQueued, onCancel = vm::cancelQueued)
             Composer(
                 text = draft,
-                onText = { vm.draft.value = it },
+                onText = vm::editDraft,
                 running = chat.running,
                 enabled = !ui.creating,
                 agents = ui.agents,

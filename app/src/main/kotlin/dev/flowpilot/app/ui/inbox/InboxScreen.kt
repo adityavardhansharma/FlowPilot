@@ -1,5 +1,7 @@
 package dev.flowpilot.app.ui.inbox
 
+import dev.flowpilot.core.sync.catching
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,10 +30,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun InboxScreen(conn: ServerConnection, contentPadding: PaddingValues, onOpenChat: (String) -> Unit, showMessage: (String) -> Unit) {
     val asks by conn.pending.asks.collectAsStateWithLifecycle()
+    val error by conn.pending.error.collectAsStateWithLifecycle()
     val sessions by conn.pending.sessions.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     if (asks.isEmpty()) {
-        EmptyState("Nothing needs you", body = "The agents will ask here when they do.", icon = Ic.inbox, modifier = Modifier.padding(contentPadding))
+        EmptyState(if (error == null) "Nothing needs you" else "Couldn’t refresh approvals", body = error ?: "The agents will ask here when they do.", icon = Ic.inbox, modifier = Modifier.padding(contentPadding))
         return
     }
     LazyColumn(
@@ -39,17 +42,18 @@ fun InboxScreen(conn: ServerConnection, contentPadding: PaddingValues, onOpenCha
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
+        if (error != null) item("error") { Text("Showing saved requests. $error", style = MaterialTheme.typography.bodySmall) }
         item("title") { Text("Inbox", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(vertical = 8.dp)) }
         items(asks.distinctBy { it.id }, key = { it.id }) { ask ->
             val title = sessions[ask.sessionID]?.title?.takeIf { it.isNotBlank() } ?: "Chat"
             val fail: (Throwable) -> Unit = { showMessage("Couldn't answer. ${it.friendly()}") }
             androidx.compose.foundation.layout.Column(Modifier.animateItem()) {
                 when (ask) {
-                    is Ask.Permission -> PermissionCard(ask.request, onDecide = { d -> scope.launch { runCatching { conn.pending.reply(ask.request, d) }.onFailure(fail) } }, chatTitle = title)
+                    is Ask.Permission -> PermissionCard(ask.request, onDecide = { d -> scope.launch { catching { conn.pending.reply(ask.request, d) }.onFailure(fail) } }, chatTitle = title)
                     is Ask.Question -> FormCard(
                         ask.form,
-                        onSubmit = { a -> scope.launch { runCatching { conn.pending.answer(ask.form, a) }.onFailure(fail) } },
-                        onDismiss = { scope.launch { runCatching { conn.pending.dismiss(ask.form) }.onFailure(fail) } },
+                        onSubmit = { a -> scope.launch { catching { conn.pending.answer(ask.form, a) }.onFailure(fail) } },
+                        onDismiss = { scope.launch { catching { conn.pending.dismiss(ask.form) }.onFailure(fail) } },
                         chatTitle = title,
                     )
                 }

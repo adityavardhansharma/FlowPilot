@@ -20,8 +20,10 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
-      - name: Core tests
-        run: ./gradlew :core:test --stacktrace
+      - name: Core and repository tests
+        run: ./gradlew :core:test :app:testDebugUnitTest --stacktrace
+      - name: Android lint and instrumentation compilation
+        run: ./gradlew :app:lintDebug :app:assembleDebugAndroidTest --stacktrace
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
       - name: Upload APK
@@ -35,4 +37,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-reports
-          path: core/build/reports/tests
+          path: |
+            core/build/reports/tests
+            app/build/reports/tests
+            app/build/reports/lint-results-debug.*

@@ -1,5 +1,7 @@
 package dev.flowpilot.app.ui.pairing
 
+import dev.flowpilot.core.sync.catching
+
 import android.annotation.SuppressLint
 import android.util.Log
 import android.view.ViewGroup
@@ -82,6 +84,7 @@ fun QrScanner(onCode: (String) -> Unit, onError: (String) -> Unit, modifier: Mod
                         }
                         .addOnCompleteListener(main) { proxy.close(); busy.set(false) }
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.w("FlowPilot", "frame skipped", e)
                     proxy.close()
                     busy.set(false)
@@ -101,18 +104,20 @@ fun QrScanner(onCode: (String) -> Unit, onError: (String) -> Unit, modifier: Mod
                     p.bindToLifecycle(owner, selector, usePreview, analysis)
                     provider = p
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     fail(e)
                 }
             }, main)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             fail(e)
         }
 
         onDispose {
             disposed.set(true)
-            runCatching { analysis.clearAnalyzer() }
-            runCatching { provider?.unbind(usePreview, analysis) }
-            runCatching { scanner?.close() }
+            catching { analysis.clearAnalyzer() }
+            catching { provider?.unbind(usePreview, analysis) }
+            catching { scanner?.close() }
             worker.shutdown()
         }
     }

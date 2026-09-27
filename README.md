@@ -29,6 +29,8 @@ If the QR code shows an address your phone can't reach, for example because of a
 ## Docs
 
 - [Build plan](docs/build-plan.md): features, architecture, milestones M0–M8, and the three phases.
+- [Reliability implementation](docs/reliability-implementation.md): the synchronization/storage follow-up, verification commands, and live-device validation still needed.
+- [Implementation and architecture review](docs/architecture-review-2026-09-27.md): milestone status, connection reliability findings, performance gaps, and prioritized next steps (27 September 2026).
 - [OpenCode v2 API design](docs/opencode-android-design.md): the verified API shapes the app uses.
 - [Design system](docs/design-system/project/README.md): the brand book, `tokens.json`, the UX guidelines under `guidelines/`, and 45 component specs with HTML previews under `components/`.
 - Live design system: https://claude.ai/artifact/746u49XQQC3nxFMnydLBEg (private until shared).

@@ -1,5 +1,7 @@
 package dev.flowpilot.app.data
 
+import dev.flowpilot.core.sync.catching
+
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -34,7 +36,7 @@ object SecretBox {
         return Base64.encodeToString(out, Base64.NO_WRAP)
     }
 
-    fun open(sealed: String): String? = runCatching {
+    fun open(sealed: String): String? = catching {
         val bytes = Base64.decode(sealed, Base64.NO_WRAP)
         val cipher = Cipher.getInstance(TRANSFORM)
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes, 0, 12))

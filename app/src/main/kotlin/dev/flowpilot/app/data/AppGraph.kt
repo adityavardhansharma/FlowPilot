@@ -1,5 +1,7 @@
 package dev.flowpilot.app.data
 
+import dev.flowpilot.core.sync.catching
+
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
@@ -41,7 +43,7 @@ class AppGraph(context: Context) {
                         if (cur?.server?.id != server?.id || cur?.server?.sealedSecret != server?.sealedSecret) {
                             cur?.close()
                             _connection.value = server?.let { s ->
-                                runCatching { SecretBox.open(s.sealedSecret)?.let { ServerConnection(s, it, scope) } }
+                                catching { SecretBox.open(s.sealedSecret)?.let { ServerConnection(s, it, scope, cache) } }
                                     .onFailure { e -> Log.w("FlowPilot", "couldn't open saved server", e) }
                                     .getOrNull()
                             }
@@ -59,10 +61,11 @@ class AppGraph(context: Context) {
 
     /** A new or restored network (Wi-Fi back, switched networks) means the old stream is dead; reopen it now. */
     private fun watchNetwork() {
-        runCatching {
+        catching {
             val cm = context.getSystemService(ConnectivityManager::class.java) ?: return
             cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) { _connection.value?.retryNow(force = true) }
+                override fun onAvailable(network: Network) { _connection.value?.setNetwork(true) }
+                override fun onLost(network: Network) { _connection.value?.setNetwork(cm.activeNetwork != null) }
             })
         }.onFailure { Log.w("FlowPilot", "couldn't watch the network", it) }
     }
@@ -70,9 +73,10 @@ class AppGraph(context: Context) {
     /** Coming back to the app after a while: reconnect straight away instead of waiting out the backoff. */
     private fun watchForeground() {
         scope.launch(Dispatchers.Main) {
-            runCatching {
+            catching {
                 ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-                    override fun onStart(owner: LifecycleOwner) { _connection.value?.retryNow(force = true) }
+                    override fun onStart(owner: LifecycleOwner) { _connection.value?.setForeground(true) }
+                    override fun onStop(owner: LifecycleOwner) { _connection.value?.setForeground(false) }
                 })
             }.onFailure { Log.w("FlowPilot", "couldn't watch the app lifecycle", it) }
         }

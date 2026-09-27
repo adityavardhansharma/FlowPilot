@@ -80,6 +80,7 @@ fun AppNav() {
 
     val nav = rememberNavController()
     var resumed by rememberSaveable { mutableStateOf(false) }
+    var previousServer by rememberSaveable { mutableStateOf<String?>(null) }
     val lan = rememberLocalNetworkAccess()
 
     // Android 17 blocks LAN requests until local network access is granted; ask once per launch, then reconnect.
@@ -112,6 +113,11 @@ fun AppNav() {
     // Resume, don't restart: cold start reopens the last chat.
     LaunchedEffect(conn?.server?.id) {
         val c = conn ?: return@LaunchedEffect
+        if (previousServer != null && previousServer != c.server.id) {
+            nav.navigate(Routes.MAIN) { popUpTo(0) }
+            resumed = false
+        }
+        previousServer = c.server.id
         if (!resumed) {
             resumed = true
             g.prefs.lastChat(c.server.id).first()?.let { nav.navigate(Routes.chat(it)) }
@@ -174,7 +180,7 @@ private enum class Tab(val label: String, val icon: Int) { Chats("Chats", Ic.cha
 @Composable
 private fun MainTabs(conn: ServerConnection, nav: NavHostController) {
     val g = graph
-    val home: HomeViewModel = viewModel(key = "home:${conn.server.id}") { HomeViewModel(g, conn) }
+    val home: HomeViewModel = viewModel(key = "home:${conn.identity}") { HomeViewModel(g, conn) }
     var tab by rememberSaveable { mutableStateOf(Tab.Chats) }
     var newChat by remember { mutableStateOf(false) }
     val asks by conn.pending.asks.collectAsStateWithLifecycle()

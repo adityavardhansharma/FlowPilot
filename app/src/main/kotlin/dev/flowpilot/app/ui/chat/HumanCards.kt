@@ -2,6 +2,8 @@
 
 package dev.flowpilot.app.ui.chat
 
+import dev.flowpilot.core.sync.catching
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -113,7 +115,7 @@ fun FormCard(form: Form, onSubmit: (JsonObject) -> Unit, onDismiss: () -> Unit, 
                         (f.title ?: f.key).let { Text(it + if (f.required) "" else " (optional)", style = MaterialTheme.typography.labelLarge) }
                         f.description?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant) }
                     }
-                    FieldInput(f, answers[f.key], { answers[f.key] = it }, onOpen = { url -> runCatching { uri.openUri(url) } })
+                    FieldInput(f, answers[f.key], { answers[f.key] = it }, onOpen = { url -> catching { uri.openUri(url) } })
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

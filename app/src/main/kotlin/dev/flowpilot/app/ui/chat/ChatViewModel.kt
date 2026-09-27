@@ -20,6 +20,15 @@ import dev.flowpilot.core.api.Session
 import dev.flowpilot.core.chat.ChatEntry
 import dev.flowpilot.core.chat.ChatReducer
 import dev.flowpilot.core.chat.ChatState
+import dev.flowpilot.core.sync.*
+import dev.flowpilot.core.chat.QueuedMessage
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,11 +57,12 @@ data class ChatUi(
     val visibility: ModelVisibility = ModelVisibility(),
     val recent: List<ModelRef> = emptyList(),
     val creating: Boolean = false,
+    val syncing: Boolean = false,
     val message: String? = null,
     /** Bumped when the server confirms a send, so the feed scrolls to the new turn. */
     val sentTick: Int = 0,
 ) {
-    val isNew: Boolean get() = session == null
+    val isNew: Boolean get() = chat.sessionID.isEmpty()
     val title: String get() = chat.title?.takeIf { it.isNotBlank() } ?: session?.title?.takeIf { it.isNotBlank() } ?: "New chat"
     val currentModel: Model? get() = model?.let { ref -> models.firstOrNull { it.id == ref.id && it.providerID == ref.providerID } }
     val visibleModels: List<Model>
@@ -63,11 +73,7 @@ data class ChatUi(
     }
 }
 
-/**
- * One chat. [sessionID] is null for a chat that hasn't been sent yet: the session is created on first send,
- * so abandoned drafts never litter the server.
- */
-@OptIn(FlowPreview::class)
+/** Presentation and commands. The connection-owned repository is the only chat state writer. */
 class ChatViewModel(
     private val graph: AppGraph,
     val conn: ServerConnection,
@@ -77,248 +83,236 @@ class ChatViewModel(
     private val server = conn.server.id
     private val _ui = MutableStateFlow(ChatUi(ChatState(sessionID ?: ""), directory = directory, loading = sessionID != null))
     val ui: StateFlow<ChatUi> = _ui.asStateFlow()
-
     val draft = MutableStateFlow("")
-    private var eventsJob: Job? = null
+    private var repository: SessionRepository? = null
+    private var observeJob: Job? = null
+    private val sendLock = Mutex()
+    private val modelLock = Mutex()
+    private val agentLock = Mutex()
+    private val queueEdits = mutableSetOf<String>()
+    private val sid get() = repository?.id
+    private var draftKey = sessionID ?: "new:$directory"
+    private var draftLoaded = false
+    private var draftEdited = false
 
-    private val sid: String? get() = _ui.value.chat.sessionID.ifEmpty { null }
+    fun editDraft(text: String) { draftEdited = true; draft.value = text }
 
     init {
         viewModelScope.launch {
-            draft.value = runCatching { graph.prefs.draft(sessionID ?: "new:$directory") }.getOrDefault("")
-            draft.drop(1).debounce(300).collect { runCatching { graph.prefs.saveDraft(sid ?: "new:${_ui.value.directory}", it) } }
+            val saved = catching { graph.prefs.draft(server, draftKey) }.getOrDefault("")
+            if (!draftEdited) draft.value = saved
+            draftLoaded = true
+            draft.collect { graph.prefs.saveDraft(server, draftKey, it) }
         }
         viewModelScope.launch { graph.prefs.visibility(server).collect { v -> _ui.update { it.copy(visibility = v) } } }
         viewModelScope.launch { graph.prefs.recentModels(server).collect { r -> _ui.update { it.copy(recent = r) } } }
         if (sessionID != null) {
-            viewModelScope.launch { runCatching { graph.prefs.setLastChat(server, sessionID) } }
-            viewModelScope.launch {
-                graph.cache.readMessages(server, sessionID)?.let { cached -> runCatching { ChatReducer.entriesFrom(cached) }.getOrNull() }?.let { entries ->
-                    _ui.update { it.copy(chat = it.chat.copy(entries = entries), loading = false) }
-                }
-                load()
-            }
             follow(sessionID)
-        } else {
-            viewModelScope.launch { loadCatalog(directory) }
-            viewModelScope.launch { runCatching { conn.client.projects() }.getOrNull()?.firstOrNull { it.canonical == directory }?.let { p -> _ui.update { it.copy(projectName = p.displayName) } } }
-        }
+            viewModelScope.launch { graph.prefs.setLastChat(server, sessionID) }
+        } else viewModelScope.launch { loadCatalog(directory) }
         viewModelScope.launch {
-            conn.reconnects.drop(1).collect {
-                when {
-                    sid != null -> load(silent = true)
-                    // A new chat whose model and agent lists failed to load gets them once the computer is back.
-                    _ui.value.models.isEmpty() || _ui.value.agents.isEmpty() -> loadCatalog(_ui.value.directory)
-                }
-            }
+            conn.reconnects.drop(1).collect { if (sid == null) loadCatalog(_ui.value.directory) }
+        }
+    }
+
+    override fun onCleared() {
+        if (draftLoaded || draftEdited) {
+            val key = draftKey
+            val text = draft.value
+            graph.scope.launch { catching { graph.prefs.saveDraft(server, key, text) } }
         }
     }
 
     private fun follow(id: String) {
-        eventsJob?.cancel()
-        eventsJob = viewModelScope.launch {
-            conn.events.collect { e ->
-                _ui.update { u -> u.copy(chat = runCatching { ChatReducer.reduce(u.chat, e) }.getOrDefault(u.chat)) }
-                if (e.sessionID == id && (e.type == "session.execution.succeeded" || e.type == "session.execution.failed" || e.type == "session.execution.interrupted")) {
-                    markViewed()
-                    saveCache()
+        observeJob?.cancel()
+        val repo = conn.session(id)
+        repository = repo
+        observeJob = viewModelScope.launch {
+            launch {
+                repo.state.collect { snapshot ->
+                    val session = snapshot.saved.session
+                    _ui.update { old -> old.copy(
+                        chat = snapshot.saved.chat, session = session ?: old.session,
+                        directory = session?.location?.directory ?: old.directory,
+                        loading = snapshot.loading, loadingOlder = snapshot.loadingOlder, syncing = snapshot.syncing,
+                        loadError = snapshot.error,
+                        model = snapshot.saved.chat.model ?: old.model,
+                        agent = snapshot.saved.chat.agent ?: old.agent,
+                    ) }
+                }
+            }
+            launch {
+                repo.state.map { it.saved.session?.location?.directory }.distinctUntilChanged().collect { dir ->
+                    if (dir != null) loadCatalog(dir)
+                }
+            }
+            launch {
+                repo.state.map { it.saved.chat.running }.distinctUntilChanged().collect { running ->
+                    if (!running && !repo.state.value.loading && !repo.state.value.syncing) markViewed()
                 }
             }
         }
     }
 
-    fun load(silent: Boolean = false) {
-        val id = sid ?: return
-        viewModelScope.launch {
-            if (!silent) _ui.update { it.copy(loadError = null) }
-            try {
-                val session = conn.client.session(id)
-                val (messages, cursor) = conn.client.messages(id, limit = 40)
-                val perms = runCatching { conn.client.permissions(id) }.getOrDefault(emptyList())
-                val forms = runCatching { conn.client.forms(id) }.getOrDefault(emptyList())
-                val inbox = runCatching { conn.client.inbox(id) }.getOrDefault(emptyList())
-                val running = runCatching { id in conn.client.activeSessions() }.getOrDefault(false)
-                _ui.update { u ->
-                    var chat = ChatReducer.mergeLatest(u.chat, messages, cursor.next)
-                    chat = ChatReducer.withPending(chat, perms, forms, inbox)
-                    chat = chat.copy(
-                        title = session.title,
-                        running = running,
-                        runStartedAt = if (running) chat.runStartedAt ?: session.time.updated else null,
-                        agent = chat.agent ?: session.agent,
-                        model = chat.model ?: session.model,
-                    )
-                    u.copy(chat = chat, session = session, directory = session.location.directory, loading = false, loadError = null)
-                }
-                graph.cache.writeMessages(server, id, messages)
-                loadCatalog(session.location.directory)
-                if (!running) markViewed()
-                runCatching { conn.client.projects() }.getOrNull()?.firstOrNull { it.id == session.projectID }?.let { p ->
-                    _ui.update { it.copy(projectName = p.displayName) }
-                }
-            } catch (e: Exception) {
-                _ui.update { it.copy(loading = false, loadError = if (it.chat.entries.isEmpty()) e.friendly() else null, message = if (silent || it.chat.entries.isEmpty()) null else e.friendly()) }
-            }
-        }
+    private fun change(f: (ChatState) -> ChatState) {
+        val repo = repository
+        if (repo != null) repo.update(f) else _ui.update { it.copy(chat = f(it.chat)) }
     }
 
-    private suspend fun loadCatalog(directory: String?) {
-        val agents = runCatching { conn.client.agents(directory) }.getOrDefault(emptyList()).filter { it.selectable }
-        val models = runCatching { conn.client.models(directory) }.getOrDefault(emptyList())
-        val u = _ui.value
+    fun load(silent: Boolean = false) { repository?.invalidate() }
+
+    private suspend fun loadCatalog(directory: String?) = coroutineScope {
+        val agentsJob = async { catching { conn.catalog.agents(directory) } }
+        val modelsJob = async { catching { conn.catalog.models(directory) } }
+        val defaultJob = async { catching { conn.catalog.defaultModel(directory) } }
+        val projectsJob = async { catching { conn.catalog.projects() } }
+        val agents = agentsJob.await().getOrNull()?.filter { it.selectable }
+        val models = modelsJob.await().getOrNull()
+        val default = defaultJob.await().getOrNull()?.ref
+        val projects = projectsJob.await().getOrNull()
         val lastAgent = graph.prefs.lastAgent(server).first()
-        val agent = u.chat.agent ?: u.session?.agent ?: lastAgent?.takeIf { a -> agents.any { it.id == a } } ?: agents.firstOrNull()?.id
-        val model = u.chat.model ?: u.session?.model ?: graph.prefs.lastModel(server).first()
-            ?: runCatching { conn.client.defaultModel(directory) }.getOrNull()?.ref
-        _ui.update { it.copy(agents = agents, models = models, agent = it.agent ?: agent, model = it.model ?: model) }
+        val lastModel = graph.prefs.lastModel(server).first()
+        _ui.update { u -> u.copy(
+            agents = agents ?: u.agents, models = models ?: u.models,
+            agent = u.chat.agent ?: u.agent ?: lastAgent?.takeIf { a -> agents?.any { it.id == a } == true } ?: agents?.firstOrNull()?.id,
+            model = u.chat.model ?: u.model ?: lastModel ?: default,
+            projectName = projects?.firstOrNull { it.canonical == directory }?.displayName ?: u.projectName,
+        ) }
     }
 
     fun loadOlder() {
-        val id = sid ?: return
-        val cursor = _ui.value.chat.olderCursor ?: return
-        if (_ui.value.loadingOlder) return
-        _ui.update { it.copy(loadingOlder = true) }
-        viewModelScope.launch {
-            try {
-                val (older, next) = conn.client.messages(id, cursor = cursor, limit = 40)
-                _ui.update { it.copy(chat = ChatReducer.prependOlder(it.chat, older, next.next), loadingOlder = false) }
-            } catch (e: Exception) {
-                _ui.update { it.copy(loadingOlder = false, message = e.friendly()) }
-            }
-        }
+        viewModelScope.launch { catching { repository?.loadOlder() }.onFailure { show(it) } }
     }
 
-    /** Sends [text]. While the agent works, [queue] waits for the turn to finish instead of steering it. */
     fun send(text: String, queue: Boolean) {
         val body = text.trim()
-        if (body.isEmpty() || _ui.value.creating) return
+        if (body.isEmpty() || !sendLock.tryLock()) return
         val running = _ui.value.chat.running
         val localId = "local-" + UUID.randomUUID()
-        val showBubble = !(running && queue)
-        if (showBubble) _ui.update { it.copy(chat = ChatReducer.optimisticUser(it.chat, localId, body, System.currentTimeMillis())) }
+        val bubble = !(running && queue)
+        _ui.update { it.copy(creating = true) }
+        if (bubble) change { ChatReducer.optimisticUser(it, localId, body, System.currentTimeMillis()) }
         draft.value = ""
         viewModelScope.launch {
             try {
                 val id = sid ?: createSession()
-                conn.client.prompt(id, PromptBody(text = body, delivery = if (running && queue) Delivery.Queue.wire else Delivery.Steer.wire))
-                _ui.update { it.copy(sentTick = it.sentTick + 1, chat = if (!running) it.chat.copy(running = true, runStartedAt = it.chat.runStartedAt ?: System.currentTimeMillis()) else it.chat) }
-            } catch (e: Exception) {
-                _ui.update { it.copy(chat = if (showBubble) ChatReducer.failOptimistic(it.chat, localId) else it.chat, creating = false, message = "Didn't send. ${e.friendly()}") }
+                val item = conn.client.prompt(id, PromptBody(text = body, delivery = if (running && queue) Delivery.Queue.wire else Delivery.Steer.wire))
+                change { chat ->
+                    if (bubble) {
+                        val exists = chat.entries.any { it.id == item.id }
+                        chat.copy(entries = chat.entries.mapNotNull { entry ->
+                            if (entry.id != localId) entry
+                            else if (exists) null
+                            else (entry as ChatEntry.User).copy(id = item.id, pending = false, failed = false)
+                        })
+                    } else if (chat.queued.none { it.id == item.id } && chat.entries.none { it.id == item.id }) {
+                        chat.copy(queued = chat.queued + QueuedMessage(item.id, body, item.delivery))
+                    } else chat
+                }
+                _ui.update { it.copy(sentTick = it.sentTick + 1) }
+                repository?.invalidate()
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (bubble) change { ChatReducer.failOptimistic(it, localId) }
+                // A transport failure cannot tell whether the server accepted the mutation.
+                val uncertain = e is dev.flowpilot.core.api.ApiException.Unreachable
+                _ui.update { it.copy(message = if (uncertain) "Send wasn't confirmed. Check the refreshed chat before retrying." else "Couldn't send. ${e.friendly()}") }
                 if (draft.value.isEmpty()) draft.value = body
-            }
+                repository?.invalidate()
+            } finally { _ui.update { it.copy(creating = false) }; sendLock.unlock() }
         }
     }
 
     private suspend fun createSession(): String {
-        _ui.update { it.copy(creating = true) }
-        val u = _ui.value
-        val dir = u.directory ?: conn.scratchDir()
-        val session = conn.client.createSession(CreateSessionBody(location = Location(dir), agent = u.agent, model = u.model))
-        graph.prefs.saveDraft("new:${u.directory}", "")
+        val before = _ui.value
+        val dir = before.directory ?: conn.scratchDir()
+        val session = conn.client.createSession(CreateSessionBody(location = Location(dir), agent = before.agent, model = before.model))
+        val optimistic = _ui.value.chat.entries
+        graph.prefs.saveDraft(server, draftKey, "")
+        draftKey = session.id
+        graph.prefs.saveDraft(server, draftKey, draft.value)
         graph.prefs.setLastChat(server, session.id)
-        _ui.update {
-            it.copy(
-                session = session, directory = session.location.directory, creating = false, loading = false,
-                chat = it.chat.copy(sessionID = session.id, title = session.title),
-            )
-        }
+        _ui.update { it.copy(session = session, directory = session.location.directory, loading = false) }
         follow(session.id)
+        change { it.copy(entries = (it.entries + optimistic).distinctBy { e -> e.id }, title = session.title, agent = session.agent, model = session.model) }
         return session.id
     }
 
     fun retry(entry: ChatEntry.User) {
-        _ui.update { u -> u.copy(chat = u.chat.copy(entries = u.chat.entries.filterNot { it.id == entry.id })) }
+        change { it.copy(entries = it.entries.filterNot { e -> e.id == entry.id }) }
         send(entry.text, queue = false)
     }
-
-    /** Re-sends the last thing the user said, after a failed turn. */
     fun retryLastTurn() {
         val last = _ui.value.chat.entries.lastOrNull { it is ChatEntry.User } as? ChatEntry.User ?: return
         send(last.text, queue = false)
     }
+    fun stop() { sid?.let { id -> viewModelScope.launch { catching { conn.client.interrupt(id) }.onFailure { show(it) } } } }
 
-    fun stop() {
-        val id = sid ?: return
+    private fun removeQueued(id: String, edit: Boolean) {
+        val session = sid ?: return
+        val item = _ui.value.chat.queued.firstOrNull { it.id == id } ?: return
+        if (!queueEdits.add(id)) return
         viewModelScope.launch {
-            runCatching { conn.client.interrupt(id) }.onFailure { e -> _ui.update { it.copy(message = "Couldn't stop. ${e.friendly()}") } }
+            try {
+                conn.client.cancelInbox(session, id)
+                change { it.copy(queued = it.queued.filterNot { q -> q.id == id }) }
+                if (edit) draft.value = if (draft.value.isBlank()) item.text else draft.value + "\n" + item.text
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { show(e) }
+            finally { queueEdits.remove(id) }
         }
     }
-
-    fun cancelQueued(inboxID: String) {
-        val id = sid ?: return
-        val before = _ui.value.chat.queued
-        _ui.update { it.copy(chat = it.chat.copy(queued = it.chat.queued.filterNot { q -> q.id == inboxID })) }
-        viewModelScope.launch {
-            runCatching { conn.client.cancelInbox(id, inboxID) }.onFailure { e ->
-                _ui.update { it.copy(chat = it.chat.copy(queued = before), message = e.friendly()) }
-            }
-        }
-    }
-
-    /** Pulls a queued message back into the composer to edit it. */
-    fun editQueued(inboxID: String) {
-        val q = _ui.value.chat.queued.firstOrNull { it.id == inboxID } ?: return
-        draft.value = q.text
-        cancelQueued(inboxID)
-    }
+    fun cancelQueued(inboxID: String) = removeQueued(inboxID, false)
+    fun editQueued(inboxID: String) = removeQueued(inboxID, true)
 
     fun selectAgent(agent: String) {
-        _ui.update { it.copy(agent = agent) }
-        viewModelScope.launch {
-            runCatching { graph.prefs.useAgent(server, agent) }
-            sid?.let { id -> runCatching { conn.client.setAgent(id, agent) }.onFailure { e -> _ui.update { it.copy(message = e.friendly()) } } }
-        }
+        viewModelScope.launch { agentLock.withLock {
+            catching {
+                sid?.let { conn.client.setAgent(it, agent) }
+                change { it.copy(agent = agent) }
+                _ui.update { it.copy(agent = agent) }
+                graph.prefs.useAgent(server, agent)
+            }.onFailure { show(it) }
+        } }
     }
-
     fun selectModel(ref: ModelRef) {
-        _ui.update { it.copy(model = ref) }
-        viewModelScope.launch {
-            runCatching { graph.prefs.useModel(server, ref) }
-            sid?.let { id -> runCatching { conn.client.setModel(id, ref) }.onFailure { e -> _ui.update { it.copy(message = e.friendly()) } } }
-        }
+        viewModelScope.launch { modelLock.withLock {
+            catching {
+                sid?.let { conn.client.setModel(it, ref) }
+                change { it.copy(model = ref) }
+                _ui.update { it.copy(model = ref) }
+                graph.prefs.useModel(server, ref)
+            }.onFailure { show(it) }
+        } }
     }
-
     fun reply(p: PermissionRequest, decision: Decision) {
-        _ui.update { it.copy(chat = it.chat.copy(permissions = it.chat.permissions.filterNot { x -> x.id == p.id })) }
-        viewModelScope.launch {
-            runCatching { conn.pending.reply(p, decision) }.onFailure { e ->
-                _ui.update { it.copy(chat = it.chat.copy(permissions = it.chat.permissions + p), message = "Couldn't answer. ${e.friendly()}") }
-            }
-        }
+        viewModelScope.launch { catching {
+            conn.pending.reply(p, decision)
+            change { it.copy(permissions = it.permissions.filterNot { x -> x.id == p.id }) }
+        }.onFailure { show(it) } }
     }
-
     fun answer(f: Form, answer: JsonObject) {
-        _ui.update { it.copy(chat = it.chat.copy(forms = it.chat.forms.filterNot { x -> x.id == f.id })) }
-        viewModelScope.launch {
-            runCatching { conn.pending.answer(f, answer) }.onFailure { e ->
-                _ui.update { it.copy(chat = it.chat.copy(forms = it.chat.forms + f), message = "Couldn't answer. ${e.friendly()}") }
-            }
-        }
+        viewModelScope.launch { catching {
+            conn.pending.answer(f, answer)
+            change { it.copy(forms = it.forms.filterNot { x -> x.id == f.id }) }
+        }.onFailure { show(it) } }
     }
-
     fun dismiss(f: Form) {
-        _ui.update { it.copy(chat = it.chat.copy(forms = it.chat.forms.filterNot { x -> x.id == f.id })) }
-        viewModelScope.launch { runCatching { conn.pending.dismiss(f) } }
+        viewModelScope.launch { catching {
+            conn.pending.dismiss(f)
+            change { it.copy(forms = it.forms.filterNot { x -> x.id == f.id }) }
+        }.onFailure { show(it) } }
     }
-
     fun rename(title: String) {
         val id = sid ?: return
-        val old = _ui.value.chat.title
-        _ui.update { it.copy(chat = it.chat.copy(title = title)) }
-        viewModelScope.launch {
-            runCatching { conn.client.rename(id, title) }.onFailure { e -> _ui.update { it.copy(chat = it.chat.copy(title = old), message = e.friendly()) } }
-        }
+        viewModelScope.launch { catching { conn.client.rename(id, title); change { it.copy(title = title) } }.onFailure { show(it) } }
     }
-
     fun consumeMessage() = _ui.update { it.copy(message = null) }
-
+    private fun show(error: Throwable) = _ui.update { it.copy(message = error.friendly()) }
     private fun markViewed() {
         val id = sid ?: return
-        viewModelScope.launch { runCatching { conn.client.markViewed(id, System.currentTimeMillis()) } }
-    }
-
-    private fun saveCache() {
-        val id = sid ?: return
-        viewModelScope.launch { runCatching { graph.cache.writeMessages(server, id, conn.client.messages(id, limit = 40).first) } }
+        val idle = repository?.state?.value?.saved?.session?.time?.idle ?: return
+        viewModelScope.launch { catching { conn.client.markViewed(id, idle) } }
     }
 }

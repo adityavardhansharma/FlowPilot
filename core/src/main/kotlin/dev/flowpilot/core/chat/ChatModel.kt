@@ -6,8 +6,10 @@ import dev.flowpilot.core.api.ModelRef
 import dev.flowpilot.core.api.PermissionRequest
 import dev.flowpilot.core.api.Tokens
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.Serializable
 
 /** Everything the chat screen renders, derived from REST pages plus live events. Immutable. */
+@Serializable
 data class ChatState(
     val sessionID: String,
     val title: String? = null,
@@ -28,14 +30,18 @@ data class ChatState(
     val hasOlder: Boolean get() = olderCursor != null
 }
 
+@Serializable
 data class RetryInfo(val attempt: Int, val at: Long, val error: ApiError)
 
+@Serializable
 data class QueuedMessage(val id: String, val text: String, val delivery: String)
 
+@Serializable
 sealed interface ChatEntry {
     val id: String
     val created: Long
 
+    @Serializable
     data class User(
         override val id: String,
         override val created: Long,
@@ -45,6 +51,7 @@ sealed interface ChatEntry {
         val failed: Boolean = false,
     ) : ChatEntry
 
+    @Serializable
     data class Assistant(
         override val id: String,
         override val created: Long,
@@ -61,8 +68,10 @@ sealed interface ChatEntry {
     }
 
     /** One-line events in the feed: agent or model switched, compaction, stop. */
+    @Serializable
     data class Marker(override val id: String, override val created: Long, val kind: MarkerKind, val text: String) : ChatEntry
 
+    @Serializable
     data class Shell(
         override val id: String,
         override val created: Long,
@@ -73,19 +82,24 @@ sealed interface ChatEntry {
     ) : ChatEntry
 }
 
+@Serializable
 enum class MarkerKind { AgentSwitched, ModelSwitched, Compaction, Stopped, Failed, Moved, Synthetic }
 
+@Serializable
 sealed interface Part {
     val key: String
 
+    @Serializable
     data class Text(val ordinal: Int, val text: String, val streaming: Boolean) : Part {
         override val key get() = "t$ordinal"
     }
 
+    @Serializable
     data class Reasoning(val ordinal: Int, val text: String, val streaming: Boolean, val started: Long?, val completed: Long?) : Part {
         override val key get() = "r$ordinal"
     }
 
+    @Serializable
     data class Tool(
         val id: String,
         val name: String,
@@ -103,6 +117,7 @@ sealed interface Part {
     }
 }
 
+@Serializable
 enum class ToolStatus { Streaming, Running, Completed, Error }
 
 /** Items as the feed draws them: consecutive tool calls fold into one work group between text blocks. */
@@ -160,4 +175,24 @@ fun ChatState.feed(): List<FeedItem> {
         }
     }
     return out
+}
+
+/** Reuses presentation rows for unchanged messages; a streaming tail does not rebuild old work groups. */
+class FeedCache {
+    private data class Cached(val entry: ChatEntry, val turnOver: Boolean, val rows: List<FeedItem>)
+    private var previous = emptyMap<String, Cached>()
+    @Synchronized fun feed(state: ChatState): List<FeedItem> {
+        val next = HashMap<String, Cached>(state.entries.size)
+        val rows = ArrayList<FeedItem>()
+        state.entries.forEachIndexed { index, entry ->
+            val turnOver = state.entries.getOrNull(index + 1) !is ChatEntry.Assistant && !(index == state.entries.lastIndex && state.running)
+            val old = previous[entry.id]
+            val cached = if (old?.entry === entry && old.turnOver == turnOver) old else
+                Cached(entry, turnOver, ChatState(state.sessionID, entries = listOf(entry), running = !turnOver).feed())
+            next[entry.id] = cached
+            rows += cached.rows
+        }
+        previous = next
+        return rows
+    }
 }

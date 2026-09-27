@@ -1,5 +1,7 @@
 package dev.flowpilot.app.data
 
+import dev.flowpilot.core.sync.catching
+
 import android.content.Context
 import android.os.Build
 import android.util.Log
@@ -17,7 +19,7 @@ object CrashLog {
         val app = context.applicationContext
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
-            runCatching {
+            catching {
                 file(app).writeText(
                     buildString {
                         appendLine("FlowPilot ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
@@ -32,7 +34,7 @@ object CrashLog {
         }
     }
 
-    fun read(context: Context): String? = runCatching { file(context).takeIf { it.exists() }?.readText() }.getOrNull()
+    fun read(context: Context): String? = catching { file(context).takeIf { it.exists() }?.readText() }.getOrNull()
 
-    fun clear(context: Context) { runCatching { file(context).delete() } }
+    fun clear(context: Context) { catching { file(context).delete() } }
 }
