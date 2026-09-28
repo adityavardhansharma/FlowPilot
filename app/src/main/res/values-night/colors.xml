@@ -1,4 +1,5 @@
 <resources>
-    <color name="surface">#0A0F0E</color>
-    <color name="launcher_bg">#216A5E</color>
+    <!-- ground (Basalt). -->
+    <color name="surface">#121315</color>
+    <color name="launcher_bg">#1D6B66</color>
 </resources>

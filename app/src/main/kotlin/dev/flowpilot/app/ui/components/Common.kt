@@ -125,6 +125,7 @@ object Ic {
     val tree = R.drawable.ic_account_tree
     val file = R.drawable.ic_description
     val bolt = R.drawable.ic_bolt
+    val slash = R.drawable.ic_slash
 
     fun tool(icon: ToolIcon): Int = when (icon) {
         ToolIcon.Read -> R.drawable.ic_description

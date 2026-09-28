@@ -173,7 +173,7 @@ fun Composer(
     Surface(color = scheme.surfaceContainerHigh, shape = RoundedCornerShape(28.dp), modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(top = 4.dp, bottom = 8.dp)) {
             when {
-                commandMatches.isNotEmpty() -> Suggestions(commandMatches.map { Suggestion(it.name, "/" + it.name, it.description, Ic.bolt) }, ::pickCommand)
+                commandMatches.isNotEmpty() -> Suggestions(commandMatches.map { Suggestion(it.name, "/" + it.name, it.description, Ic.slash) }, ::pickCommand)
                 mentionQuery != null && fileMatches.isNotEmpty() -> Suggestions(fileMatches.map { Suggestion(it, it.substringAfterLast('/'), it.substringBeforeLast('/', "").ifEmpty { null }, Ic.file) }, ::pickFile)
             }
             if (attachments.isNotEmpty()) AttachmentRow(attachments, onRemoveAttachment)
@@ -256,7 +256,7 @@ private fun PlusMenu(onPhotos: () -> Unit, onFile: () -> Unit, onCommand: () -> 
             )
             item(Ic.image, "Photos", "Attach images for the model to see", null, onPhotos)
             item(Ic.file, "File as context", "Add a file from the project", "@", onFile)
-            item(Ic.bolt, "Command", "Run a slash command", "/", onCommand)
+            item(Ic.slash, "Command", "Run a slash command", "/", onCommand)
             item(Ic.terminal, "Shell command", "Run it on your computer", "!", onShell)
         }
     }
