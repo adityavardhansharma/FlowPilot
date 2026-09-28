@@ -102,6 +102,12 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
     val vm: ChatViewModel = viewModel(key = "${conn.identity}:${sessionID ?: "new:$directory"}") { ChatViewModel(g, conn, sessionID, directory) }
     val ui by vm.ui.collectAsStateWithLifecycle()
     val draft by vm.draft.collectAsStateWithLifecycle()
+    val attachments by vm.attachments.collectAsStateWithLifecycle()
+    val shellMode by vm.shellMode.collectAsStateWithLifecycle()
+    val fileMatches by vm.fileMatches.collectAsStateWithLifecycle()
+    val photos = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia(MAX_IMAGES),
+    ) { uris -> if (uris.isNotEmpty()) vm.addImages(uris) }
     val settings by g.prefs.settings.collectAsStateWithLifecycle(dev.flowpilot.app.data.Settings())
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -226,6 +232,20 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
                 onSend = { queue -> vm.send(draft, queue) },
                 onStop = vm::stop,
                 focus = focus,
+                shell = shellMode,
+                onShell = vm::setShellMode,
+                attachments = attachments,
+                onRemoveAttachment = vm::removeAttachment,
+                commands = ui.commands,
+                fileMatches = fileMatches,
+                onFileQuery = vm::searchFiles,
+                onFilePicked = vm::addFile,
+                onPickImages = {
+                    catching {
+                        photos.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }.onFailure { scope.launch { snackbar.showSnackbar("No photo picker on this phone.") } }
+                },
+                folder = ui.directory,
                 modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp).navigationBarsPadding(),
             )
         }

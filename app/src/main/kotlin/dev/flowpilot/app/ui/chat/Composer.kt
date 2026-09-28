@@ -51,6 +51,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.flowpilot.app.ui.components.Ic
 import dev.flowpilot.app.ui.components.Sym
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import dev.flowpilot.app.ui.theme.CodeStyle
+import dev.flowpilot.core.api.CommandInfo
+import dev.flowpilot.core.chat.ComposerInput
+import dev.flowpilot.core.sync.catching
 import dev.flowpilot.core.api.Agent
 import dev.flowpilot.core.chat.QueuedMessage
 
@@ -75,9 +88,12 @@ fun QueuedChips(queued: List<QueuedMessage>, onEdit: (String) -> Unit, onCancel:
 }
 
 /**
- * The docked composer: text on top, then a toolbar with one mode-and-model chip and send. The chip reads
- * "Build · Model" and opens a single sheet for both. While the agent works, send becomes a split button
- * (send now steers, the arrow queues) beside stop.
+ * The docked composer: attachment chips and suggestions on top, then the text, then a toolbar with +, one
+ * mode-and-model chip and send. The chip reads "Build · Model" and opens a single sheet for both. While the agent
+ * works, send becomes a split button (send now steers, the arrow queues) beside stop.
+ *
+ * Shortcuts, as in OpenCode's own clients: `/` at the start lists slash commands, `@` lists files to add as
+ * context, and `!` in an empty box switches to running a shell command. The + menu offers the same, plus photos.
  */
 @Composable
 fun Composer(
@@ -92,32 +108,205 @@ fun Composer(
     onSend: (queue: Boolean) -> Unit,
     onStop: () -> Unit,
     focus: FocusRequester,
+    shell: Boolean,
+    onShell: (Boolean) -> Unit,
+    attachments: List<Attachment>,
+    onRemoveAttachment: (String) -> Unit,
+    commands: List<CommandInfo>,
+    fileMatches: List<String>,
+    onFileQuery: (String?) -> Unit,
+    onFilePicked: (String) -> Unit,
+    onPickImages: () -> Unit,
+    folder: String?,
     modifier: Modifier = Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
+    // The field keeps its own cursor so shortcuts know what is being typed; text set from outside (sent, restored,
+    // a queued message pulled back) moves the cursor to the end.
+    var field by remember { mutableStateOf(TextFieldValue(text, TextRange(text.length))) }
+    // [text] comes back through the view model's flow a frame or so after each keystroke. Those echoes are
+    // recognised and dropped; anything else is a change from outside and replaces the field.
+    val echoes = remember { ArrayDeque<String>() }
+    LaunchedEffect(text) {
+        val echo = echoes.indexOf(text)
+        if (echo >= 0) repeat(echo + 1) { echoes.removeFirst() }
+        else {
+            echoes.clear()
+            if (field.text != text) field = TextFieldValue(text, TextRange(text.length))
+        }
+    }
+    fun set(value: TextFieldValue) {
+        val changed = value.text != field.text
+        field = value
+        if (changed) {
+            echoes.addLast(value.text)
+            if (echoes.size > 64) echoes.removeFirst()
+            onText(value.text)
+        }
+    }
+
+    val trigger = if (shell) null else ComposerInput.trigger(field.text, field.selection.start)
+    val mentionQuery = (trigger as? ComposerInput.Trigger.Mention)?.query
+    LaunchedEffect(mentionQuery) { onFileQuery(mentionQuery) }
+    val commandMatches = (trigger as? ComposerInput.Trigger.Command)?.let { t ->
+        commands.filter { it.name.startsWith(t.query, true) } + commands.filter { !it.name.startsWith(t.query, true) && it.name.contains(t.query, true) }
+    }.orEmpty().take(6)
+
+    fun pickCommand(name: String) {
+        val rest = field.text.substring(field.selection.start.coerceIn(0, field.text.length)).trimStart()
+        val next = "/$name " + rest
+        set(TextFieldValue(next, TextRange(name.length + 2)))
+    }
+    fun pickFile(path: String) {
+        val t = trigger as? ComposerInput.Trigger.Mention ?: return
+        val (next, cursor) = ComposerInput.completeMention(field.text, field.selection.start, t.start, path)
+        set(TextFieldValue(next, TextRange(cursor)))
+        onFilePicked(path)
+        onFileQuery(null)
+    }
+    fun insertAtCursor(token: String) {
+        val at = field.selection.start.coerceIn(0, field.text.length)
+        val pad = if (at > 0 && !field.text[at - 1].isWhitespace()) " " else ""
+        set(TextFieldValue(field.text.substring(0, at) + pad + token + field.text.substring(at), TextRange(at + pad.length + token.length)))
+    }
+
     Surface(color = scheme.surfaceContainerHigh, shape = RoundedCornerShape(28.dp), modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(top = 4.dp, bottom = 8.dp)) {
-            Box(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp).heightIn(min = 24.dp)) {
-                if (text.isEmpty()) {
-                    Text(if (running) "Steer the agent, or queue a follow-up" else "Ask the agent to do something", style = MaterialTheme.typography.bodyLarge, color = scheme.onSurfaceVariant)
+            when {
+                commandMatches.isNotEmpty() -> Suggestions(commandMatches.map { Suggestion(it.name, "/" + it.name, it.description, Ic.bolt) }, ::pickCommand)
+                mentionQuery != null && fileMatches.isNotEmpty() -> Suggestions(fileMatches.map { Suggestion(it, it.substringAfterLast('/'), it.substringBeforeLast('/', "").ifEmpty { null }, Ic.file) }, ::pickFile)
+            }
+            if (attachments.isNotEmpty()) AttachmentRow(attachments, onRemoveAttachment)
+            Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 10.dp).heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (shell) {
+                    Surface(onClick = { onShell(false) }, shape = RoundedCornerShape(8.dp), color = scheme.tertiaryContainer, contentColor = scheme.onTertiaryContainer) {
+                        Row(Modifier.padding(start = 6.dp, end = 4.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Sym(Ic.terminal, null, size = 16.dp)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Shell", style = MaterialTheme.typography.labelMedium)
+                            Sym(Ic.close, "Leave shell mode", size = 14.dp)
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
                 }
-                BasicTextField(
-                    value = text,
-                    onValueChange = onText,
-                    enabled = enabled,
-                    maxLines = 6,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
-                    cursorBrush = SolidColor(scheme.primary),
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                    modifier = Modifier.fillMaxWidth().focusRequester(focus),
-                )
+                Box(Modifier.weight(1f)) {
+                    if (field.text.isEmpty()) {
+                        Text(
+                            when {
+                                shell -> "Run a command" + (folder?.let { " in ${it.trimEnd('/').substringAfterLast('/')}" } ?: "")
+                                running -> "Steer the agent, or queue a follow-up"
+                                else -> "Ask the agent, / for commands, @ for files"
+                            },
+                            style = MaterialTheme.typography.bodyLarge, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    BasicTextField(
+                        value = field,
+                        onValueChange = { v ->
+                            // "!" typed into an empty box switches to shell mode, like OpenCode's terminal app.
+                            if (!shell && field.text.isEmpty() && v.text == "!") { onShell(true); return@BasicTextField }
+                            set(v)
+                        },
+                        enabled = enabled,
+                        maxLines = 6,
+                        textStyle = (if (shell) CodeStyle.copy(fontSize = MaterialTheme.typography.bodyLarge.fontSize) else MaterialTheme.typography.bodyLarge).copy(color = scheme.onSurface),
+                        cursorBrush = SolidColor(scheme.primary),
+                        keyboardOptions = if (shell) KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false)
+                        else KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                        modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                    )
+                }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                PlusMenu(
+                    onPhotos = onPickImages,
+                    onFile = { insertAtCursor("@"); catching { focus.requestFocus() } },
+                    onCommand = {
+                        if (shell) onShell(false)
+                        if (!field.text.startsWith("/")) set(TextFieldValue("/" + field.text, TextRange(1)))
+                        catching { focus.requestFocus() }
+                    },
+                    onShell = { onShell(true); catching { focus.requestFocus() } },
+                    enabled = enabled,
+                )
                 Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                     ModeModelChip(if (agents.isEmpty()) null else agentLabel(agent, agents), agent, modelLabel, onPicker)
                 }
                 Spacer(Modifier.width(8.dp))
-                SendControl(hasText = text.isNotBlank(), running = running, enabled = enabled, onSend = onSend, onStop = onStop)
+                val sendable = field.text.isNotBlank() || (!shell && attachments.any { it is Attachment.Image })
+                SendControl(hasText = sendable, running = running, enabled = enabled, onSend = onSend, onStop = onStop)
+            }
+        }
+    }
+}
+
+/** The + button: photos, and the three typed shortcuts for people who don't know them yet. */
+@Composable
+private fun PlusMenu(onPhotos: () -> Unit, onFile: () -> Unit, onCommand: () -> Unit, onShell: () -> Unit, enabled: Boolean) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }, enabled = enabled) { Sym(Ic.add, "Add photos, files, commands") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }, shape = RoundedCornerShape(16.dp)) {
+            @Composable
+            fun item(icon: Int, title: String, body: String, shortcut: String?, action: () -> Unit) = DropdownMenuItem(
+                text = { Column { Text(title); Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
+                leadingIcon = { Sym(icon) },
+                trailingIcon = if (shortcut != null) { { ShortcutKey(shortcut) } } else null,
+                onClick = { open = false; action() },
+            )
+            item(Ic.image, "Photos", "Attach images for the model to see", null, onPhotos)
+            item(Ic.file, "File as context", "Add a file from the project", "@", onFile)
+            item(Ic.bolt, "Command", "Run a slash command", "/", onCommand)
+            item(Ic.terminal, "Shell command", "Run it on your computer", "!", onShell)
+        }
+    }
+}
+
+@Composable
+private fun ShortcutKey(key: String) {
+    Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+        Text(key, style = CodeStyle, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+    }
+}
+
+private data class Suggestion(val value: String, val title: String, val detail: String?, val icon: Int)
+
+/** Matches for what is being typed, above the text. Tapping one completes it. */
+@Composable
+private fun Suggestions(items: List<Suggestion>, onPick: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+        items.forEach { s ->
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { onPick(s.value) }.padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Sym(s.icon, null, size = 18.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(10.dp))
+                Text(s.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                s.detail?.let {
+                    Spacer(Modifier.width(8.dp))
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        HorizontalDivider(Modifier.padding(top = 4.dp))
+    }
+}
+
+@Composable
+private fun AttachmentRow(items: List<Attachment>, onRemove: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items.forEach { a ->
+            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                Row(Modifier.height(44.dp).padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    when (a) {
+                        is Attachment.Image -> Image(a.preview, a.name, contentScale = ContentScale.Crop, modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)))
+                        is Attachment.File -> Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) { Sym(Ic.file, null, size = 20.dp, tint = MaterialTheme.colorScheme.primary) }
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text(a.name, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp))
+                    IconButton(onClick = { onRemove(a.id) }, modifier = Modifier.size(36.dp)) { Sym(Ic.close, "Remove ${a.name}", size = 16.dp) }
+                }
             }
         }
     }

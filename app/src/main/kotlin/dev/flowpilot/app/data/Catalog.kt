@@ -10,14 +10,17 @@ class Catalog(private val client: OpenCodeClient) {
     private val models = ConcurrentHashMap<String, ResourceCache<List<Model>>>()
     private val agents = ConcurrentHashMap<String, ResourceCache<List<Agent>>>()
     private val defaults = ConcurrentHashMap<String, ResourceCache<Model?>>()
+    private val commands = ConcurrentHashMap<String, ResourceCache<List<CommandInfo>>>()
     suspend fun projects() = projects.get()
     suspend fun active() = active.get()
     suspend fun models(directory: String? = null) = models.getOrPut(directory.orEmpty()) { ResourceCache(300_000) { client.models(directory) } }.get()
     suspend fun agents(directory: String? = null) = agents.getOrPut(directory.orEmpty()) { ResourceCache(300_000) { client.agents(directory) } }.get()
     suspend fun defaultModel(directory: String? = null) = defaults.getOrPut(directory.orEmpty()) { ResourceCache(300_000) { client.defaultModel(directory) } }.get()
+    suspend fun commands(directory: String? = null) = commands.getOrPut(directory.orEmpty()) { ResourceCache(300_000) { client.commands(directory) } }.get()
     fun invalidate() {
         projects.invalidate(); active.invalidate()
         models.values.forEach { it.invalidate() }; agents.values.forEach { it.invalidate() }; defaults.values.forEach { it.invalidate() }
+        commands.values.forEach { it.invalidate() }
     }
     fun event(type: String) {
         if (type.startsWith("project.")) projects.invalidate()

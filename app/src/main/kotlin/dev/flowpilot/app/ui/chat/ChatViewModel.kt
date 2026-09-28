@@ -7,6 +7,9 @@ import dev.flowpilot.app.data.ModelVisibility
 import dev.flowpilot.app.data.ServerConnection
 import dev.flowpilot.app.ui.friendly
 import dev.flowpilot.core.api.Agent
+import dev.flowpilot.core.api.CommandBody
+import dev.flowpilot.core.api.CommandInfo
+import dev.flowpilot.core.api.PromptFile
 import dev.flowpilot.core.api.CreateSessionBody
 import dev.flowpilot.core.api.Decision
 import dev.flowpilot.core.api.Delivery
@@ -20,6 +23,7 @@ import dev.flowpilot.core.api.Session
 import dev.flowpilot.core.chat.ChatEntry
 import dev.flowpilot.core.chat.ChatReducer
 import dev.flowpilot.core.chat.ChatState
+import dev.flowpilot.core.chat.ComposerInput
 import dev.flowpilot.core.sync.*
 import dev.flowpilot.core.chat.QueuedMessage
 import kotlinx.coroutines.async
@@ -52,6 +56,7 @@ data class ChatUi(
     val loadingOlder: Boolean = false,
     val agents: List<Agent> = emptyList(),
     val agent: String? = null,
+    val commands: List<CommandInfo> = emptyList(),
     val models: List<Model> = emptyList(),
     val model: ModelRef? = null,
     val visibility: ModelVisibility = ModelVisibility(),
@@ -85,6 +90,13 @@ class ChatViewModel(
     private val _ui = MutableStateFlow(ChatUi(ChatState(sessionID ?: ""), directory = directory, loading = sessionID != null))
     val ui: StateFlow<ChatUi> = _ui.asStateFlow()
     val draft = MutableStateFlow("")
+    /** Photos and @files riding along with the next message. */
+    val attachments = MutableStateFlow<List<Attachment>>(emptyList())
+    /** The composer runs its text as a shell command in the chat's folder instead of prompting the agent. */
+    val shellMode = MutableStateFlow(false)
+    /** Files matching the `@query` being typed, relative to the chat's folder. */
+    val fileMatches = MutableStateFlow<List<String>>(emptyList())
+    private var fileSearch: Job? = null
     private var repository: SessionRepository? = null
     private var observeJob: Job? = null
     private val sendLock = Mutex()
@@ -171,14 +183,17 @@ class ChatViewModel(
         val modelsJob = async { catching { conn.catalog.models(directory) } }
         val defaultJob = async { catching { conn.catalog.defaultModel(directory) } }
         val projectsJob = async { catching { conn.catalog.projects() } }
+        val commandsJob = async { catching { conn.catalog.commands(directory) } }
         val agents = agentsJob.await().getOrNull()?.filter { it.selectable }
         val models = modelsJob.await().getOrNull()
         val default = defaultJob.await().getOrNull()?.ref
         val projects = projectsJob.await().getOrNull()
+        val commands = commandsJob.await().getOrNull()
         val lastAgent = graph.prefs.lastAgent(server).first()
         val lastModel = graph.prefs.lastModel(server).first()
         _ui.update { u -> u.copy(
             agents = agents ?: u.agents, models = models ?: u.models,
+            commands = commands?.sortedBy { it.name } ?: u.commands,
             agent = u.chat.agent ?: u.agent ?: lastAgent?.takeIf { a -> agents?.any { it.id == a } == true } ?: agents?.firstOrNull()?.id,
             model = u.chat.model ?: u.model ?: lastModel ?: default,
             projectName = projects?.firstOrNull { it.canonical == directory }?.displayName ?: u.projectName,
@@ -189,43 +204,120 @@ class ChatViewModel(
         viewModelScope.launch { catching { repository?.loadOlder() }.onFailure { show(it) } }
     }
 
-    fun send(text: String, queue: Boolean) {
+    /** Sends the composer. [resend] repeats an earlier message's text only, ignoring the shell toggle and chips. */
+    fun send(text: String, queue: Boolean, resend: Boolean = false) {
         val body = text.trim()
-        if (body.isEmpty() || !sendLock.tryLock()) return
+        val shell = !resend && shellMode.value
+        val attached = if (resend) emptyList() else attachments.value
+        val images = attached.filterIsInstance<Attachment.Image>()
+        if (body.isEmpty() && (shell || images.isEmpty())) return
+        if (!sendLock.tryLock()) return
+        val command = if (shell) null else ComposerInput.command(body, _ui.value.commands.map { it.name })
         val running = _ui.value.chat.running
         val localId = "local-" + UUID.randomUUID()
-        val bubble = !(running && queue)
+        val delivery = if (running && queue) Delivery.Queue.wire else Delivery.Steer.wire
+        // Shell runs and slash commands come back from the server as their own messages; only prompts get a bubble.
+        val bubble = !shell && command == null && !(running && queue)
         _ui.update { it.copy(creating = true) }
-        if (bubble) change { ChatReducer.optimisticUser(it, localId, body, System.currentTimeMillis()) }
-        draft.value = ""
+        if (bubble) change { ChatReducer.optimisticUser(it, localId, body, System.currentTimeMillis()).let { chat ->
+            if (attached.isEmpty()) chat
+            else chat.copy(entries = chat.entries.map { e -> if (e.id == localId) (e as ChatEntry.User).copy(files = attached.map { a -> a.name }) else e })
+        } }
+        if (!resend) {
+            draft.value = ""
+            attachments.value = emptyList()
+            shellMode.value = false
+            fileMatches.value = emptyList()
+        }
         viewModelScope.launch {
             try {
                 val id = sid ?: createSession()
-                val item = conn.client.prompt(id, PromptBody(text = body, delivery = if (running && queue) Delivery.Queue.wire else Delivery.Steer.wire))
-                change { chat ->
-                    if (bubble) {
-                        val exists = chat.entries.any { it.id == item.id }
-                        chat.copy(entries = chat.entries.mapNotNull { entry ->
-                            if (entry.id != localId) entry
-                            else if (exists) null
-                            else (entry as ChatEntry.User).copy(id = item.id, pending = false, failed = false)
-                        })
-                    } else if (chat.queued.none { it.id == item.id } && chat.entries.none { it.id == item.id }) {
-                        chat.copy(queued = chat.queued + QueuedMessage(item.id, body, item.delivery))
-                    } else chat
+                val files = promptFiles(attached)
+                when {
+                    shell -> conn.client.sessionShell(id, body)
+                    command != null -> conn.client.command(id, CommandBody(command.first, command.second, files, delivery))
+                    else -> {
+                        val item = conn.client.prompt(id, PromptBody(text = body, files = files, delivery = delivery))
+                        change { chat ->
+                            if (bubble) {
+                                val exists = chat.entries.any { it.id == item.id }
+                                chat.copy(entries = chat.entries.mapNotNull { entry ->
+                                    if (entry.id != localId) entry
+                                    else if (exists) null
+                                    else (entry as ChatEntry.User).copy(id = item.id, pending = false, failed = false)
+                                })
+                            } else if (chat.queued.none { it.id == item.id } && chat.entries.none { it.id == item.id }) {
+                                chat.copy(queued = chat.queued + QueuedMessage(item.id, body, item.delivery))
+                            } else chat
+                        }
+                    }
                 }
                 _ui.update { it.copy(sentTick = it.sentTick + 1) }
                 repository?.invalidate()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
                 if (bubble) change { ChatReducer.failOptimistic(it, localId) }
                 // A transport failure cannot tell whether the server accepted the mutation.
                 val uncertain = e is dev.flowpilot.core.api.ApiException.Unreachable
                 _ui.update { it.copy(message = if (uncertain) "Send wasn't confirmed. Check the refreshed chat before retrying." else "Couldn't send. ${e.friendly()}") }
-                if (draft.value.isEmpty()) draft.value = body
+                if (draft.value.isEmpty()) {
+                    draft.value = body
+                    if (attachments.value.isEmpty()) attachments.value = attached
+                    shellMode.value = shell
+                }
                 repository?.invalidate()
             } finally { _ui.update { it.copy(creating = false) }; sendLock.unlock() }
+        }
+    }
+
+    /** Photos go inline; @files go as `file://` URIs under the chat's folder, which the server reads itself. */
+    private fun promptFiles(attached: List<Attachment>): List<PromptFile>? {
+        val dir = _ui.value.directory?.trimEnd('/')
+        return attached.mapNotNull { a ->
+            when (a) {
+                is Attachment.Image -> PromptFile(a.dataUri, a.name)
+                is Attachment.File -> dir?.let { PromptFile("file://$it/${a.path.trimStart('/')}", a.path) }
+            }
+        }.ifEmpty { null }
+    }
+
+    fun setShellMode(on: Boolean) { shellMode.value = on }
+
+    fun addImages(uris: List<android.net.Uri>) {
+        val room = MAX_IMAGES - attachments.value.count { it is Attachment.Image }
+        if (room <= 0) { _ui.update { it.copy(message = "A message can carry up to $MAX_IMAGES photos.") }; return }
+        if (uris.size > room) _ui.update { it.copy(message = "Added the first $room. A message can carry up to $MAX_IMAGES photos.") }
+        uris.take(room).forEach { uri ->
+            viewModelScope.launch {
+                try {
+                    val image = loadImageAttachment(graph.context, uri)
+                    attachments.update { it + image }
+                    val model = _ui.value.currentModel
+                    if (model != null && "image" !in model.capabilities.input) {
+                        _ui.update { it.copy(message = "${model.name} may not read images. Pick a vision model if it ignores the photo.") }
+                    }
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { _ui.update { it.copy(message = "Couldn't attach that photo. ${e.message.orEmpty()}".trim()) } }
+            }
+        }
+    }
+
+    fun addFile(path: String) { attachments.update { list -> if (list.any { it is Attachment.File && it.path == path }) list else list + Attachment.File(path) } }
+
+    fun removeAttachment(id: String) { attachments.update { list -> list.filterNot { it.id == id } } }
+
+    /** Looks up files for the `@query` being typed; null clears the list. Only the latest query's answer lands. */
+    fun searchFiles(query: String?) {
+        fileSearch?.cancel()
+        val dir = _ui.value.directory
+        if (query == null || dir == null) { fileMatches.value = emptyList(); return }
+        fileSearch = viewModelScope.launch {
+            kotlinx.coroutines.delay(120)
+            // The server's search returns nothing for an empty query, so a bare "@" lists the folder's own files.
+            catching {
+                if (query.isBlank()) conn.client.listDir(dir).filterNot { it.isDirectory || it.name.startsWith(".") }.map { it.name }.take(8)
+                else conn.client.findFiles(dir, query, limit = 8).map { it.path }
+            }.onSuccess { fileMatches.value = it }
         }
     }
 
@@ -246,11 +338,11 @@ class ChatViewModel(
 
     fun retry(entry: ChatEntry.User) {
         change { it.copy(entries = it.entries.filterNot { e -> e.id == entry.id }) }
-        send(entry.text, queue = false)
+        send(entry.text, queue = false, resend = true)
     }
     fun retryLastTurn() {
         val last = _ui.value.chat.entries.lastOrNull { it is ChatEntry.User } as? ChatEntry.User ?: return
-        send(last.text, queue = false)
+        send(last.text, queue = false, resend = true)
     }
     fun stop() { sid?.let { id -> viewModelScope.launch { catching { conn.client.interrupt(id) }.onFailure { show(it) } } } }
 
