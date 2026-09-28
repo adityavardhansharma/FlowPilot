@@ -2,6 +2,8 @@
 
 package dev.flowpilot.app.ui.home
 
+import dev.flowpilot.app.ui.components.FpSpinner
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -16,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -30,6 +31,9 @@ import androidx.compose.ui.unit.dp
 import dev.flowpilot.app.ui.components.Ic
 import dev.flowpilot.app.ui.components.ProjectShape
 import dev.flowpilot.app.ui.components.Sym
+import dev.flowpilot.app.ui.theme.Fp
+import dev.flowpilot.app.ui.theme.FpType
+import androidx.compose.ui.unit.sp
 import dev.flowpilot.core.chat.Format
 import dev.flowpilot.core.home.RowStatus
 import dev.flowpilot.core.home.ThreadRowModel
@@ -37,7 +41,7 @@ import dev.flowpilot.core.home.ThreadRowModel
 /** One chat in a list: project shape, title, live or folder line, time and status. 72dp tall. */
 @Composable
 fun ThreadRow(row: ThreadRowModel, projectName: String, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier) {
-    val scheme = MaterialTheme.colorScheme
+    val c = Fp.colors
     Row(
         modifier
             .fillMaxWidth()
@@ -49,8 +53,8 @@ fun ThreadRow(row: ThreadRowModel, projectName: String, onClick: () -> Unit, onL
         Box {
             ProjectShape(projectName, 40.dp, muted = projectName == "No project")
             if (row.pinned) {
-                Box(Modifier.align(Alignment.BottomEnd).size(18.dp).clip(CircleShape).background(scheme.surface), contentAlignment = Alignment.Center) {
-                    Sym(Ic.pin, "Pinned", size = 12.dp, tint = scheme.primary)
+                Box(Modifier.align(Alignment.BottomEnd).size(18.dp).clip(CircleShape).background(c.surfaceRaised), contentAlignment = Alignment.Center) {
+                    Sym(Ic.pin, "Pinned", size = 12.dp, tint = c.accent)
                 }
             }
         }
@@ -58,19 +62,20 @@ fun ThreadRow(row: ThreadRowModel, projectName: String, onClick: () -> Unit, onL
         Column(Modifier.weight(1f)) {
             Text(
                 row.title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (row.status == RowStatus.Unread || row.status == RowStatus.NeedsYou) FontWeight.SemiBold else FontWeight.Normal,
+                style = FpType.body,
+                color = c.ink,
+                fontWeight = if (row.status == RowStatus.Unread || row.status == RowStatus.NeedsYou) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 row.supporting,
-                style = MaterialTheme.typography.bodyMedium,
+                style = FpType.caption,
                 color = when (row.status) {
-                    RowStatus.NeedsYou -> scheme.tertiary
-                    RowStatus.Working -> scheme.primary
-                    RowStatus.Failed -> scheme.error
-                    else -> scheme.onSurfaceVariant
+                    RowStatus.NeedsYou -> c.amber
+                    RowStatus.Working -> c.accent
+                    RowStatus.Failed -> c.danger
+                    else -> c.inkMuted
                 },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -78,7 +83,7 @@ fun ThreadRow(row: ThreadRowModel, projectName: String, onClick: () -> Unit, onL
         }
         Spacer(Modifier.width(12.dp))
         Column(horizontalAlignment = Alignment.End) {
-            Text(Format.relative(row.lastActivity), style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
+            Text(Format.relative(row.lastActivity), style = FpType.caption, color = c.inkMuted)
             Spacer(Modifier.size(4.dp))
             StatusMark(row.status)
         }
@@ -87,14 +92,16 @@ fun ThreadRow(row: ThreadRowModel, projectName: String, onClick: () -> Unit, onL
 
 @Composable
 fun StatusMark(status: RowStatus) {
-    val scheme = MaterialTheme.colorScheme
+    val c = Fp.colors
     when (status) {
-        RowStatus.NeedsYou -> Surface(color = scheme.tertiaryContainer, contentColor = scheme.onTertiaryContainer, shape = CircleShape) {
-            Text("Needs you", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+        RowStatus.NeedsYou -> Row(Modifier.clip(CircleShape).background(c.amberSoft).padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Sym(Ic.lock, null, size = 12.dp, tint = c.onAmberSoft)
+            Spacer(Modifier.width(4.dp))
+            Text("Needs you", style = FpType.caption.copy(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium), color = c.onAmberSoft)
         }
-        RowStatus.Working -> LoadingIndicator(Modifier.size(20.dp), color = scheme.primary)
-        RowStatus.Failed -> Sym(Ic.error, "Failed", size = 18.dp, tint = scheme.error)
-        RowStatus.Unread -> Box(Modifier.size(10.dp).clip(CircleShape).background(scheme.primary))
-        RowStatus.Idle -> Spacer(Modifier.size(10.dp))
+        RowStatus.Working -> FpSpinner(Modifier.size(18.dp), color = c.accent)
+        RowStatus.Failed -> Sym(Ic.error, "Failed", size = 18.dp, tint = c.danger)
+        RowStatus.Unread -> Box(Modifier.size(8.dp).clip(CircleShape).background(c.accent))
+        RowStatus.Idle -> Spacer(Modifier.size(8.dp))
     }
 }

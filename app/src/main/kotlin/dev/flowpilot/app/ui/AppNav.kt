@@ -2,6 +2,33 @@
 
 package dev.flowpilot.app.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import dev.flowpilot.app.ui.theme.Fp
+import dev.flowpilot.app.ui.theme.FpType
+import dev.flowpilot.app.ui.theme.Radius
+import dev.flowpilot.app.ui.theme.pressable
+import dev.flowpilot.app.ui.theme.raised
+
 import android.net.Uri
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -30,7 +57,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -192,34 +218,45 @@ private fun MainTabs(conn: ServerConnection, nav: NavHostController) {
 
     Scaffold(
         bottomBar = {
-            ShortNavigationBar {
-                Tab.entries.forEach { t ->
-                    ShortNavigationBarItem(
-                        selected = tab == t,
-                        onClick = { tab = t },
-                        icon = {
-                            if (t == Tab.Inbox && asks.isNotEmpty()) {
-                                BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.tertiary) { Text("${asks.size}") } }) { Sym(t.icon, null) }
-                            } else Sym(t.icon, null)
-                        },
-                        label = { Text(t.label) },
-                    )
+            // A floating dock: the tabs as one raised pill, and New chat as the accent key beside it.
+            Row(
+                Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 12.dp, top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(Modifier.weight(1f).height(56.dp).raised(Radius.full, Fp.colors.surfaceRaised, lift = true).padding(4.dp)) {
+                    Tab.entries.forEach { t ->
+                        val on = tab == t
+                        Row(
+                            Modifier.weight(1f).fillMaxHeight().clip(Radius.full)
+                                .background(if (on) Fp.colors.accentSoft else Color.Transparent)
+                                .selectable(selected = on, role = Role.Tab) { tab = t },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            val ink = if (on) Fp.colors.onAccentSoft else Fp.colors.inkMuted
+                            Box {
+                                Sym(t.icon, null, size = 20.dp, tint = ink)
+                                if (t == Tab.Inbox && asks.isNotEmpty()) {
+                                    Box(Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-4).dp).size(16.dp).clip(Radius.full).background(Fp.colors.amber), contentAlignment = Alignment.Center) {
+                                        Text("${asks.size.coerceAtMost(9)}", style = FpType.caption.copy(fontSize = 10.sp, lineHeight = 12.sp), color = Fp.colors.onAmber)
+                                    }
+                                }
+                            }
+                            if (on) { Spacer(Modifier.width(6.dp)); Text(t.label, style = FpType.label, color = ink, maxLines = 1) }
+                        }
+                    }
+                }
+                if (tab != Tab.Inbox) {
+                    Spacer(Modifier.width(12.dp))
+                    Box(
+                        Modifier.size(56.dp).pressable(Radius.full, Fp.colors.accent, { newChat = true }, label = "New chat"),
+                        contentAlignment = Alignment.Center,
+                    ) { Sym(Ic.add, "New chat", size = 24.dp, tint = Fp.colors.onAccent) }
                 }
             }
         },
-        floatingActionButton = {
-            if (tab != Tab.Inbox) {
-                ExtendedFloatingActionButton(
-                    onClick = { newChat = true },
-                    icon = { Sym(Ic.editSquare, null) },
-                    text = { Text("New chat") },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-            }
-        },
-        snackbarHost = { SnackbarHost(snackbar) },
-        containerColor = MaterialTheme.colorScheme.surface,
+        snackbarHost = { SnackbarHost(snackbar) { dev.flowpilot.app.ui.components.FpToast(it) } },
+        containerColor = Fp.colors.ground,
     ) { padding ->
         when (tab) {
             Tab.Chats -> HomeScreen(home, padding, onOpenChat = openChat, onNewChat = { newChat = true }, onSettings = { nav.navigate(Routes.SETTINGS) }, showMessage = show)
