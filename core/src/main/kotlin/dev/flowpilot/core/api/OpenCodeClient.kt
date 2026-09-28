@@ -104,9 +104,12 @@ class OpenCodeClient(
 
     suspend fun deleteSession(id: String) { call(Request.Builder().url(url("api/session/$id")).delete().build()) }
 
-    /** Messages newest first; pass [cursor] for older pages. */
+    /**
+     * Messages newest first; pass [cursor] for older pages. The cursor already carries the order, and the server
+     * rejects a request that sends both (400 InvalidCursorError), so `order` goes only on the first page.
+     */
     suspend fun messages(sessionID: String, cursor: String? = null, limit: Int = 40): Pair<List<JsonObject>, Cursor> {
-        val raw = getRaw("api/session/$sessionID/message", mapOf("order" to "desc", "limit" to "$limit", "cursor" to cursor))
+        val raw = getRaw("api/session/$sessionID/message", mapOf("order" to if (cursor == null) "desc" else null, "limit" to "$limit", "cursor" to cursor))
         return withContext(Dispatchers.Default) { parseMessages(raw) }
     }
 

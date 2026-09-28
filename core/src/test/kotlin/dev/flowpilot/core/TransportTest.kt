@@ -62,4 +62,19 @@ class TransportTest {
             assertEquals("future.event", event.event.type)
         }
     }
+
+    @Test fun olderMessagePagesSendCursorWithoutOrder() = runBlocking {
+        MockWebServer().use { server ->
+            repeat(2) { server.enqueue(MockResponse().setBody("{\"data\":[],\"cursor\":{\"next\":\"abc\"}}")) }
+            val client = OpenCodeClient(ServerEndpoint(server.url("/").toString(), "test"))
+            client.messages("ses_1")
+            client.messages("ses_1", cursor = "abc")
+            val first = server.takeRequest().requestUrl!!
+            val older = server.takeRequest().requestUrl!!
+            assertEquals("desc", first.queryParameter("order"))
+            // OpenCode answers 400 "Cursor cannot be combined with order" when both are sent.
+            assertNull(older.queryParameter("order"))
+            assertEquals("abc", older.queryParameter("cursor"))
+        }
+    }
 }
