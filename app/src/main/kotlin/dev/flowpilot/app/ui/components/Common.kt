@@ -123,6 +123,8 @@ object Ic {
     val boxOff = R.drawable.ic_check_box_outline_blank
     val openInNew = R.drawable.ic_open_in_new
     val tree = R.drawable.ic_account_tree
+    val file = R.drawable.ic_description
+    val bolt = R.drawable.ic_bolt
 
     fun tool(icon: ToolIcon): Int = when (icon) {
         ToolIcon.Read -> R.drawable.ic_description

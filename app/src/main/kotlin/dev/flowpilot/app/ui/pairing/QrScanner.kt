@@ -4,10 +4,13 @@ import dev.flowpilot.core.sync.catching
 
 import android.annotation.SuppressLint
 import android.util.Log
+import android.util.Size
 import android.view.ViewGroup
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.CameraState
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
@@ -36,9 +39,21 @@ import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /** How long the preview may stay black before the person is told why, instead of staring at nothing. */
 private const val NO_PICTURE_AFTER_MS = 6_000L
+
+/** Consecutive frames the decoder may fail on before the person is told scanning is broken, not just slow. */
+private const val DECODE_FAILURES_BEFORE_REPORT = 30
+
+/**
+ * `opencode pair` prints a dense QR (a long link) that is usually filmed off a monitor. CameraX's default 640x480
+ * analysis frame leaves too few pixels per module to decode it, so ask for 720p or the closest size available.
+ */
+private val ANALYSIS_RESOLUTION = ResolutionSelector.Builder()
+    .setResolutionStrategy(ResolutionStrategy(Size(1280, 720), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
+    .build()
 
 /**
  * Full-bleed camera preview that reports every QR code it decodes.
@@ -72,6 +87,7 @@ fun QrScanner(onCode: (String) -> Unit, onError: (String?) -> Unit, modifier: Mo
         val main = ContextCompat.getMainExecutor(context)
         val disposed = AtomicBoolean(false)
         val busy = AtomicBoolean(false)
+        val failures = AtomicInteger(0)
         val worker = Executors.newSingleThreadExecutor()
         // CameraX may still post a frame after we let go; drop it instead of throwing on a shut-down executor.
         val analysisExecutor = Executor { task ->
@@ -79,7 +95,11 @@ fun QrScanner(onCode: (String) -> Unit, onError: (String?) -> Unit, modifier: Mo
             try { worker.execute(task) } catch (_: RejectedExecutionException) {}
         }
         val scanner = catching {
-            BarcodeScanning.getClient(BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build())
+            BarcodeScanning.getClient(BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                // Also returns codes found at a slant or partly out of focus, which a screen photo often is.
+                .enableAllPotentialBarcodes()
+                .build())
         }.onFailure { Log.w("FlowPilot", "QR scanner unavailable", it) }.getOrNull()
         val controller = LifecycleCameraController(context)
 
@@ -100,6 +120,7 @@ fun QrScanner(onCode: (String) -> Unit, onError: (String?) -> Unit, modifier: Mo
             // Only preview and analysis: the default also binds photo capture, which some phones can't run alongside.
             controller.setEnabledUseCases(CameraController.IMAGE_ANALYSIS)
             controller.imageAnalysisBackpressureStrategy = ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
+            controller.imageAnalysisResolutionSelector = ANALYSIS_RESOLUTION
             if (scanner != null) {
                 controller.setImageAnalysisAnalyzer(analysisExecutor) { proxy ->
                     val media = proxy.image
@@ -108,8 +129,16 @@ fun QrScanner(onCode: (String) -> Unit, onError: (String?) -> Unit, modifier: Mo
                         val image = InputImage.fromMediaImage(media, proxy.imageInfo.rotationDegrees)
                         scanner.process(image)
                             .addOnSuccessListener(main) { codes ->
+                                failures.set(0)
                                 if (disposed.get()) return@addOnSuccessListener
-                                codes.firstNotNullOfOrNull { it.rawValue }?.let { value -> latest.value(value) }
+                                codes.firstNotNullOfOrNull { it.rawValue?.trim()?.takeIf(String::isNotEmpty) }?.let { value -> latest.value(value) }
+                            }
+                            .addOnFailureListener(main) { e ->
+                                // A decoder that fails every frame used to look exactly like "no QR code in view".
+                                Log.w("FlowPilot", "QR decode failed", e)
+                                if (failures.incrementAndGet() == DECODE_FAILURES_BEFORE_REPORT) {
+                                    report("QR scanning isn't working on this phone. Enter the address instead.")
+                                }
                             }
                             .addOnCompleteListener(main) { proxy.close(); busy.set(false) }
                     } catch (e: Exception) {

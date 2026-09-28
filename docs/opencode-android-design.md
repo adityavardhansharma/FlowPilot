@@ -65,7 +65,9 @@ Default stack where things fork: **Kotlin, Jetpack Compose (Material 3), corouti
 | Agent questions | Events `form.created`/`form.replied` → `POST /api/session/:id/form/:formId/reply { answer }` | |
 | Queued messages | `GET /api/session/:id/inbox`, `PATCH`/`DELETE …/inbox/:id` | Show or edit queued messages, like t3code's queued-message chip. |
 | Diff of changes | `GET /api/session/:id/diff`, `GET /api/vcs/status` | Later phase: a review screen. |
-| Slash commands, @files | `GET /api/command`, `GET /api/fs/find` | Later phase. |
+| Slash commands, @files | `GET /api/command` → `{name, description}[]`; run with `POST /api/session/:id/command { name, text, files?, delivery? }` (204). `GET /api/fs/find?query=&type=file` → paths relative to the folder (an empty query returns nothing) | Composer `/` and `@`, and the + menu. @files are sent as `files: [{ uri: "file:///abs/path", name }]`. |
+| Shell | `POST /api/session/:id/shell { command }` (204) | Composer `!`. Lands in the chat as a `shell` message. |
+| Images | `files: [{ uri: "data:image/png;base64,…", name }]` on prompt | The server decodes and validates the image (400 "Image could not be decoded" otherwise). |
 
 ---
 

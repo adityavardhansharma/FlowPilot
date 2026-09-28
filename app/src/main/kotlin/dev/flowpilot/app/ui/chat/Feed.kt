@@ -99,7 +99,11 @@ fun UserBubble(entry: ChatEntry.User, onRetry: () -> Unit) {
 
 @Composable
 fun AssistantText(part: Part.Text) {
-    SelectionContainer { MarkdownText(part.text, streaming = part.streaming, modifier = Modifier.fillMaxWidth()) }
+    val shown = rememberStreamReveal(part.text, part.streaming)
+    val revealing = shown < part.text.length
+    SelectionContainer {
+        MarkdownText(if (revealing) part.text.substring(0, shown) else part.text, streaming = part.streaming || revealing, modifier = Modifier.fillMaxWidth())
+    }
 }
 
 /** "Thinking · 4s", collapsed by default. The raw reasoning expands in place. */
@@ -125,8 +129,9 @@ fun ReasoningRow(part: Part.Reasoning) {
             Sym(if (open) Ic.expandLess else Ic.expandMore, if (open) "Hide thinking" else "Show thinking", size = 18.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (open) {
+            val shown = rememberStreamReveal(part.text, part.streaming)
             Text(
-                part.text,
+                part.text.substring(0, shown),
                 style = MaterialTheme.typography.bodyMedium,
                 fontStyle = FontStyle.Italic,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

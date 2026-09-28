@@ -206,8 +206,24 @@ data class PromptBody(
     val delivery: String? = null,
 )
 
+/** A file sent with a prompt: `file://` for a file on the computer, or a `data:` URI (images, base64). */
 @Serializable
 data class PromptFile(val uri: String, val name: String? = null)
+
+/** A slash command defined on the computer (built in, or from the project's or user's command folders). */
+@Serializable
+data class CommandInfo(val name: String, val description: String? = null)
+
+@Serializable
+data class CommandBody(
+    val name: String,
+    val text: String,
+    val files: List<PromptFile>? = null,
+    val delivery: String? = null,
+)
+
+@Serializable
+data class SessionShellBody(val command: String)
 
 @Serializable
 data class PromptAgent(val name: String)

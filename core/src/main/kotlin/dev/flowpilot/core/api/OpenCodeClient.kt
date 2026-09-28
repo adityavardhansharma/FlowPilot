@@ -104,9 +104,12 @@ class OpenCodeClient(
 
     suspend fun deleteSession(id: String) { call(Request.Builder().url(url("api/session/$id")).delete().build()) }
 
-    /** Messages newest first; pass [cursor] for older pages. */
+    /**
+     * Messages newest first; pass [cursor] for older pages. The cursor already carries the order, and the server
+     * rejects a request that sends both (400 InvalidCursorError), so `order` goes only on the first page.
+     */
     suspend fun messages(sessionID: String, cursor: String? = null, limit: Int = 40): Pair<List<JsonObject>, Cursor> {
-        val raw = getRaw("api/session/$sessionID/message", mapOf("order" to "desc", "limit" to "$limit", "cursor" to cursor))
+        val raw = getRaw("api/session/$sessionID/message", mapOf("order" to if (cursor == null) "desc" else null, "limit" to "$limit", "cursor" to cursor))
         return withContext(Dispatchers.Default) { parseMessages(raw) }
     }
 
@@ -118,6 +121,12 @@ class OpenCodeClient(
     }
 
     suspend fun prompt(sessionID: String, body: PromptBody): InboxItem = post<PromptBody, DataEnvelope<InboxItem>>("api/session/$sessionID/prompt", body).data
+
+    /** Runs slash command [CommandBody.name] with [CommandBody.text] as its arguments. The server expands it into a turn. */
+    suspend fun command(sessionID: String, body: CommandBody) { postUnit("api/session/$sessionID/command", body) }
+
+    /** Runs [command] in the chat's folder as the user (the `!` shell); it lands in the chat as a shell message. */
+    suspend fun sessionShell(sessionID: String, command: String) { postUnit("api/session/$sessionID/shell", SessionShellBody(command)) }
 
     /** Marks the chat read up to [idle], which clears its unread dot everywhere. */
     suspend fun markViewed(sessionID: String, idle: Long) { postUnit("api/session/$sessionID/view", ViewBody(idle)) }
@@ -162,7 +171,13 @@ class OpenCodeClient(
 
     suspend fun agents(directory: String? = null): List<Agent> = get<LocatedList<Agent>>("api/agent", directory = directory).data
 
+    suspend fun commands(directory: String? = null): List<CommandInfo> = get<LocatedList<CommandInfo>>("api/command", directory = directory).data
+
     // ---- filesystem and shell ----
+    /** Fuzzy file search under [directory]; paths come back relative to it. */
+    suspend fun findFiles(directory: String, query: String, limit: Int = 20): List<FsEntry> =
+        get<LocatedList<FsEntry>>("api/fs/find", mapOf("query" to query, "type" to "file", "limit" to "$limit"), directory = directory).data
+
     suspend fun listDir(directory: String, path: String? = null): List<FsEntry> =
         get<LocatedList<FsEntry>>("api/fs/list", mapOf("path" to path), directory = directory).data
 
