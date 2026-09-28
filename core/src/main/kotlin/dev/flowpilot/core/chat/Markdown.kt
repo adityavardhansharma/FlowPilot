@@ -127,6 +127,10 @@ class MarkdownStreamParser {
     private var result: List<MdBlock> = emptyList()
     private val opening = Regex("^\\s{0,3}(```+|~~~+)\\s*([\\w+#.-]*)")
 
+    /** The blocks from the most recent [parse], or none before the first. */
+    val latest: List<MdBlock>
+        @Synchronized get() = result
+
     @Synchronized fun parse(raw: String): List<MdBlock> {
         val source = raw.replace("\r\n", "\n")
         if (source == previous) return result

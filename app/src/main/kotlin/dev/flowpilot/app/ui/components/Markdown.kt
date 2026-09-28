@@ -81,22 +81,35 @@ object Markdown {
     }
 }
 
+private const val INLINE_PARSE_LIMIT = 8_000
+
 /** Renders assistant markdown. [streaming] adds the caret after the last block. */
 @Composable
 fun MarkdownText(source: String, modifier: Modifier = Modifier, streaming: Boolean = false, style: TextStyle = MaterialTheme.typography.bodyLarge) {
     val parser = remember { dev.flowpilot.core.chat.MarkdownStreamParser() }
-    val blocks by androidx.compose.runtime.produceState<List<dev.flowpilot.core.chat.MdBlock>>(emptyList(), source) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { parser.parse(source) }
+    // Streaming text changes every frame and the stream parser only re-reads the unsettled tail, so parse in
+    // place: a background parse drew each frame one step behind and composed a new row empty (zero height) first,
+    // which made the feed jump. Long finished messages still parse off the main thread.
+    val inline = streaming || source.length <= INLINE_PARSE_LIMIT
+    val parsedHere = if (inline) remember(source) { parser.parse(source) } else null
+    val parsedAway by androidx.compose.runtime.produceState<List<MdBlock>?>(null, source, inline) {
+        if (!inline) value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { parser.parse(source) }
     }
+    // Until a background parse lands, keep the last blocks rather than drawing nothing.
+    val blocks = parsedHere ?: parsedAway ?: parser.latest
     val colors = MaterialTheme.code
     val link = MaterialTheme.colorScheme.primary
     val codeBg = MaterialTheme.colorScheme.surfaceContainerHighest
     val caretColor = MaterialTheme.colorScheme.primary
-    fun inl(s: String, caret: Boolean) = Markdown.inline(s, colors, link, codeBg).let { a ->
-        if (!caret) a else buildAnnotatedString { append(a); withStyle(SpanStyle(color = caretColor)) { append(" ▍") } }
+    // Streaming recomposes every frame; settled blocks keep their styled text instead of re-running the regexes.
+    @Composable
+    fun inl(s: String, caret: Boolean) = remember(s, caret, colors, link, codeBg, caretColor) {
+        Markdown.inline(s, colors, link, codeBg).let { a ->
+            if (!caret) a else buildAnnotatedString { append(a); withStyle(SpanStyle(color = caretColor)) { append(" ▍") } }
+        }
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        blocks.forEachIndexed { index, block ->
+        blocks.forEachIndexed { index, block -> androidx.compose.runtime.key(index) {
             val caret = streaming && index == blocks.lastIndex
             when (block) {
                 is MdBlock.Paragraph -> Text(inl(block.text, caret), style = style)
@@ -132,9 +145,9 @@ fun MarkdownText(source: String, modifier: Modifier = Modifier, streaming: Boole
                     Text(inl(block.text, caret), style = style, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 MdBlock.Rule -> HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                is MdBlock.Table -> MdTable(block) { inl(it, false) }
+                is MdBlock.Table -> MdTable(block) { Markdown.inline(it, colors, link, codeBg) }
             }
-        }
+        } }
     }
 }
 
