@@ -18,12 +18,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -32,12 +34,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.flowpilot.app.ui.components.Ic
 import dev.flowpilot.app.ui.components.SectionHeader
 import dev.flowpilot.app.ui.components.Sym
 import dev.flowpilot.app.ui.home.SearchField
+import dev.flowpilot.core.api.Agent
 import dev.flowpilot.core.api.Model
 import dev.flowpilot.core.api.ModelRef
 import dev.flowpilot.core.chat.Format
@@ -50,12 +55,27 @@ fun Model.supporting(): String = buildList {
 
 private fun trim(v: Double) = if (v == v.toLong().toDouble()) v.toLong().toString() else String.format(java.util.Locale.US, "%.2f", v).trimEnd('0')
 
+/** Icon for an agent: the hammer for Build, the checklist for Plan, sparkles for anything custom. */
+fun agentIcon(id: String?): Int = when (id?.lowercase()) {
+    "build" -> Ic.build
+    "plan" -> Ic.checklist
+    else -> Ic.autoAwesome
+}
+
+fun agentLabel(id: String?, agents: List<Agent>): String =
+    (agents.firstOrNull { it.id == id }?.name ?: id ?: "Agent").replaceFirstChar { it.uppercase() }
+
 /**
- * Model picker: search, recent, then providers. Only models visible in Settings show unless "Show all" is on.
- * Variants (reasoning effort) appear under the selected row.
+ * One sheet for how the agent works: the mode (Build, Plan, or a custom primary agent) on top, then the model.
+ * Model list: search, recent, then providers. Only models visible in Settings show unless "Show all" is on.
+ * Variants (reasoning effort) appear under the selected row. Switching mode keeps the sheet open, so both can be
+ * set in one visit.
  */
 @Composable
 fun ModelPickerSheet(
+    agents: List<Agent>,
+    agent: String?,
+    onAgent: (String) -> Unit,
     all: List<Model>,
     visible: List<Model>,
     recent: List<ModelRef>,
@@ -75,6 +95,18 @@ fun ModelPickerSheet(
     val pick: (ModelRef, Boolean) -> Unit = { ref, close -> onSelect(ref); if (close) onDismiss() }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
         Column(Modifier.fillMaxWidth()) {
+            if (agents.isNotEmpty()) {
+                Text("Mode", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp))
+                AgentChoice(agents, agent, onAgent, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp))
+                agents.firstOrNull { it.id == agent }?.description?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp),
+                    )
+                }
+                HorizontalDivider(Modifier.padding(bottom = 12.dp))
+            }
             Text("Model", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp))
             SearchField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), placeholder = "Search models")
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
@@ -135,6 +167,34 @@ private fun ModelRow(m: Model, selected: ModelRef?, onPick: (ModelRef, Boolean) 
                 m.variants.forEach { v ->
                     FilterChip(selected = selected?.variant == v.id, onClick = { onPick(m.ref.copy(variant = v.id), true) }, label = { Text(v.id.replaceFirstChar { it.uppercase() }) })
                 }
+            }
+        }
+    }
+}
+
+/** Connected toggle buttons, one per primary agent, filling the row; scrolls sideways past three. */
+@Composable
+private fun AgentChoice(agents: List<Agent>, selected: String?, onSelect: (String) -> Unit, modifier: Modifier) {
+    val haptic = LocalHapticFeedback.current
+    val fill = agents.size <= 3
+    Row(
+        (if (fill) modifier else modifier.horizontalScroll(rememberScrollState())),
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+    ) {
+        agents.forEachIndexed { i, a ->
+            ToggleButton(
+                checked = a.id == selected,
+                onCheckedChange = { if (a.id != selected) { haptic.performHapticFeedback(HapticFeedbackType.SegmentTick); onSelect(a.id) } },
+                shapes = when (i) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    agents.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                },
+                modifier = if (fill) Modifier.weight(1f) else Modifier,
+            ) {
+                Sym(agentIcon(a.id), null, size = 18.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(a.name.replaceFirstChar { it.uppercase() }, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

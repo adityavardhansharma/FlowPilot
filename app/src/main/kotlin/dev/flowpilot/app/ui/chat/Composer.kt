@@ -12,7 +12,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,7 +25,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -38,7 +36,6 @@ import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.ToggleButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,8 +46,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -80,8 +75,9 @@ fun QueuedChips(queued: List<QueuedMessage>, onEdit: (String) -> Unit, onCancel:
 }
 
 /**
- * The docked composer: text on top, then attach-free toolbar with agent toggle, model chip and send.
- * While the agent works, send becomes a split button (send now steers, the arrow queues) beside stop.
+ * The docked composer: text on top, then a toolbar with one mode-and-model chip and send. The chip reads
+ * "Build · Model" and opens a single sheet for both. While the agent works, send becomes a split button
+ * (send now steers, the arrow queues) beside stop.
  */
 @Composable
 fun Composer(
@@ -91,16 +87,14 @@ fun Composer(
     enabled: Boolean,
     agents: List<Agent>,
     agent: String?,
-    onAgent: (String) -> Unit,
     modelLabel: String,
-    onModel: () -> Unit,
+    onPicker: () -> Unit,
     onSend: (queue: Boolean) -> Unit,
     onStop: () -> Unit,
     focus: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val haptic = LocalHapticFeedback.current
     Surface(color = scheme.surfaceContainerHigh, shape = RoundedCornerShape(28.dp), modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(top = 4.dp, bottom = 8.dp)) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp).heightIn(min = 24.dp)) {
@@ -120,18 +114,7 @@ fun Composer(
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                    if (agents.size >= 2) {
-                        AgentToggle(agents, agent) { haptic.performHapticFeedback(HapticFeedbackType.SegmentTick); onAgent(it) }
-                        Spacer(Modifier.width(6.dp))
-                    }
-                    Surface(onClick = onModel, shape = RoundedCornerShape(50), color = scheme.surfaceContainerHighest, modifier = Modifier.height(36.dp)) {
-                        Row(Modifier.padding(start = 12.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Sym(Ic.autoAwesome, null, size = 16.dp, tint = scheme.primary)
-                            Spacer(Modifier.width(6.dp))
-                            Text(modelLabel, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 150.dp))
-                            Sym(Ic.dropDown, "Change model", size = 20.dp)
-                        }
-                    }
+                    ModeModelChip(if (agents.isEmpty()) null else agentLabel(agent, agents), agent, modelLabel, onPicker)
                 }
                 Spacer(Modifier.width(8.dp))
                 SendControl(hasText = text.isNotBlank(), running = running, enabled = enabled, onSend = onSend, onStop = onStop)
@@ -140,24 +123,20 @@ fun Composer(
     }
 }
 
+/** "Build · Sonnet ▾" with the mode's icon: the current mode and model in one chip. Tapping opens the combined picker. */
 @Composable
-private fun AgentToggle(agents: List<Agent>, selected: String?, onSelect: (String) -> Unit) {
-    val shown = agents.take(3)
-    Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
-        shown.forEachIndexed { i, a ->
-            ToggleButton(
-                checked = a.id == selected,
-                onCheckedChange = { onSelect(a.id) },
-                shapes = when (i) {
-                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                    shown.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                },
-                contentPadding = PaddingValues(horizontal = 12.dp),
-                modifier = Modifier.height(36.dp),
-            ) {
-                Text(a.name.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelLarge)
+private fun ModeModelChip(mode: String?, agent: String?, model: String, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(onClick = onClick, shape = RoundedCornerShape(50), color = scheme.surfaceContainerHighest, modifier = Modifier.height(36.dp)) {
+        Row(Modifier.padding(start = 12.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Sym(if (mode != null) agentIcon(agent) else Ic.autoAwesome, null, size = 16.dp, tint = scheme.primary)
+            Spacer(Modifier.width(6.dp))
+            if (mode != null) {
+                Text(mode, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                Text(" · ", style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant)
             }
+            Text(model, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 150.dp))
+            Sym(Ic.dropDown, "Change mode and model", size = 20.dp)
         }
     }
 }

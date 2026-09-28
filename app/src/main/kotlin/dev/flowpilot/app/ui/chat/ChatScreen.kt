@@ -221,9 +221,8 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
                 enabled = !ui.creating,
                 agents = ui.agents,
                 agent = ui.agent,
-                onAgent = vm::selectAgent,
                 modelLabel = ui.currentModel?.name ?: ui.model?.id ?: "Model",
-                onModel = { picker = true },
+                onPicker = { picker = true },
                 onSend = { queue -> vm.send(draft, queue) },
                 onStop = vm::stop,
                 focus = focus,
@@ -234,6 +233,9 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
 
     if (picker) {
         ModelPickerSheet(
+            agents = ui.agents,
+            agent = ui.agent,
+            onAgent = vm::selectAgent,
             all = ui.models,
             visible = ui.visibleModels,
             recent = ui.recent,

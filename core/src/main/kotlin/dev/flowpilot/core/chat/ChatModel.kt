@@ -174,7 +174,7 @@ fun ChatState.feed(): List<FeedItem> {
             }
         }
     }
-    return out
+    return collapseSwitches(out)
 }
 
 /** Reuses presentation rows for unchanged messages; a streaming tail does not rebuild old work groups. */
@@ -193,6 +193,21 @@ class FeedCache {
             rows += cached.rows
         }
         previous = next
-        return rows
+        return collapseSwitches(rows)
     }
+}
+
+/**
+ * Back-to-back "Switched to Plan" / "Switched to Build" lines (someone flipping the mode, or the model, a few
+ * times between messages) say nothing the last one doesn't, so only the last of each run is kept.
+ */
+fun collapseSwitches(rows: List<FeedItem>): List<FeedItem> {
+    fun FeedItem.switchKind() = (this as? FeedItem.Marker)?.entry?.kind?.takeIf { it == MarkerKind.AgentSwitched || it == MarkerKind.ModelSwitched }
+    if (rows.none { it.switchKind() != null }) return rows
+    val out = ArrayList<FeedItem>(rows.size)
+    for (row in rows) {
+        val kind = row.switchKind()
+        if (kind != null && out.lastOrNull()?.switchKind() == kind) out[out.lastIndex] = row else out += row
+    }
+    return out
 }
