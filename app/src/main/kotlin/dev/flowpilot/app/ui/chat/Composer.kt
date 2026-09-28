@@ -51,6 +51,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.flowpilot.app.ui.components.Ic
 import dev.flowpilot.app.ui.components.Sym
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.ui.unit.sp
+import dev.flowpilot.app.ui.components.FpChip
+import dev.flowpilot.app.ui.components.FpIconButton
+import dev.flowpilot.app.ui.components.Keycap
+import dev.flowpilot.app.ui.components.SendKey
+import dev.flowpilot.app.ui.components.SendState
+import dev.flowpilot.app.ui.theme.Fp
+import dev.flowpilot.app.ui.theme.FpType
+import dev.flowpilot.app.ui.theme.Motion
+import dev.flowpilot.app.ui.theme.Radius
+import dev.flowpilot.app.ui.theme.pressable
+import dev.flowpilot.app.ui.theme.pressed
+import dev.flowpilot.app.ui.theme.raised
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.HorizontalDivider
@@ -70,18 +85,20 @@ import dev.flowpilot.core.chat.QueuedMessage
 @Composable
 fun QueuedChips(queued: List<QueuedMessage>, onEdit: (String) -> Unit, onCancel: (String) -> Unit) {
     if (queued.isEmpty()) return
+    val c = Fp.colors
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         queued.forEach { q ->
-            Surface(onClick = { onEdit(q.id) }, color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Sym(Ic.schedule, null, size = 18.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
-                        Text("Sends when the agent finishes", style = MaterialTheme.typography.labelSmall)
-                        Text(q.text, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    androidx.compose.material3.IconButton(onClick = { onCancel(q.id) }) { Sym(Ic.close, "Remove queued message", size = 18.dp) }
+            Row(
+                Modifier.fillMaxWidth().pressable(Radius.lg, c.surface, { onEdit(q.id) }, label = "Edit queued message").padding(start = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Sym(Ic.schedule, null, size = 18.dp, tint = c.accent)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
+                    Text("Sends when the agent finishes", style = FpType.caption, color = c.inkMuted)
+                    Text(q.text, style = FpType.body, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+                FpIconButton(Ic.close, "Remove queued message", onClick = { onCancel(q.id) })
             }
         }
     }
@@ -120,7 +137,7 @@ fun Composer(
     folder: String?,
     modifier: Modifier = Modifier,
 ) {
-    val scheme = MaterialTheme.colorScheme
+    val scheme = Fp.colors
     // The field keeps its own cursor so shortcuts know what is being typed; text set from outside (sent, restored,
     // a queued message pulled back) moves the cursor to the end.
     var field by remember { mutableStateOf(TextFieldValue(text, TextRange(text.length))) }
@@ -170,7 +187,8 @@ fun Composer(
         set(TextFieldValue(field.text.substring(0, at) + pad + token + field.text.substring(at), TextRange(at + pad.length + token.length)))
     }
 
-    Surface(color = scheme.surfaceContainerHigh, shape = RoundedCornerShape(28.dp), modifier = modifier.fillMaxWidth()) {
+    // The one object that is always there floats on shadow-lift with radius-xl.
+    Box(modifier.fillMaxWidth().raised(Radius.xl, scheme.surface, lift = true)) {
         Column(Modifier.padding(top = 4.dp, bottom = 8.dp)) {
             when {
                 commandMatches.isNotEmpty() -> Suggestions(commandMatches.map { Suggestion(it.name, "/" + it.name, it.description, Ic.slash) }, ::pickCommand)
@@ -179,13 +197,16 @@ fun Composer(
             if (attachments.isNotEmpty()) AttachmentRow(attachments, onRemoveAttachment)
             Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 10.dp).heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (shell) {
-                    Surface(onClick = { onShell(false) }, shape = RoundedCornerShape(8.dp), color = scheme.tertiaryContainer, contentColor = scheme.onTertiaryContainer) {
-                        Row(Modifier.padding(start = 6.dp, end = 4.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Sym(Ic.terminal, null, size = 16.dp)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Shell", style = MaterialTheme.typography.labelMedium)
-                            Sym(Ic.close, "Leave shell mode", size = 14.dp)
-                        }
+                    // Amber: the command runs on the person's computer.
+                    Row(
+                        Modifier.clip(Radius.sm).background(scheme.amberSoft).clickable(onClickLabel = "Leave shell mode") { onShell(false) }
+                            .padding(start = 6.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Sym(Ic.terminal, null, size = 14.dp, tint = scheme.onAmberSoft)
+                        Spacer(Modifier.width(4.dp))
+                        Text("shell", style = CodeStyle.copy(fontSize = 12.sp), color = scheme.onAmberSoft)
+                        Sym(Ic.close, "Leave shell mode", size = 14.dp, tint = scheme.onAmberSoft)
                     }
                     Spacer(Modifier.width(8.dp))
                 }
@@ -197,7 +218,7 @@ fun Composer(
                                 running -> "Steer the agent, or queue a follow-up"
                                 else -> "Ask the agent, / for commands, @ for files"
                             },
-                            style = MaterialTheme.typography.bodyLarge, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            style = FpType.bodyLg, color = scheme.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                     }
                     BasicTextField(
@@ -209,8 +230,8 @@ fun Composer(
                         },
                         enabled = enabled,
                         maxLines = 6,
-                        textStyle = (if (shell) CodeStyle.copy(fontSize = MaterialTheme.typography.bodyLarge.fontSize) else MaterialTheme.typography.bodyLarge).copy(color = scheme.onSurface),
-                        cursorBrush = SolidColor(scheme.primary),
+                        textStyle = (if (shell) CodeStyle.copy(fontSize = 15.sp, lineHeight = 22.sp) else FpType.bodyLg).copy(color = scheme.ink),
+                        cursorBrush = SolidColor(scheme.accent),
                         keyboardOptions = if (shell) KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false)
                         else KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                         modifier = Modifier.fillMaxWidth().focusRequester(focus),
@@ -244,15 +265,20 @@ fun Composer(
 @Composable
 private fun PlusMenu(onPhotos: () -> Unit, onFile: () -> Unit, onCommand: () -> Unit, onShell: () -> Unit, enabled: Boolean) {
     var open by remember { mutableStateOf(false) }
+    val c = Fp.colors
     Box {
-        IconButton(onClick = { open = true }, enabled = enabled) { Sym(Ic.add, "Add photos, files, commands") }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }, shape = RoundedCornerShape(16.dp)) {
+        FpIconButton(Ic.add, "Add photos, files, commands", onClick = { open = true }, enabled = enabled)
+        DropdownMenu(
+            expanded = open, onDismissRequest = { open = false },
+            shape = Radius.lg, containerColor = c.surfaceRaised, shadowElevation = 12.dp, tonalElevation = 0.dp,
+        ) {
             @Composable
             fun item(icon: Int, title: String, body: String, shortcut: String?, action: () -> Unit) = DropdownMenuItem(
-                text = { Column { Text(title); Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
-                leadingIcon = { Sym(icon) },
-                trailingIcon = if (shortcut != null) { { ShortcutKey(shortcut) } } else null,
+                text = { Column { Text(title, style = FpType.label, color = c.ink); Text(body, style = FpType.caption, color = c.inkMuted) } },
+                leadingIcon = { Sym(icon, tint = c.ink) },
+                trailingIcon = if (shortcut != null) { { Keycap(shortcut) } } else null,
                 onClick = { open = false; action() },
+                modifier = Modifier.padding(horizontal = 6.dp).clip(Radius.md),
             )
             item(Ic.image, "Photos", "Attach images for the model to see", null, onPhotos)
             item(Ic.file, "File as context", "Add a file from the project", "@", onFile)
@@ -262,51 +288,47 @@ private fun PlusMenu(onPhotos: () -> Unit, onFile: () -> Unit, onCommand: () -> 
     }
 }
 
-@Composable
-private fun ShortcutKey(key: String) {
-    Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
-        Text(key, style = CodeStyle, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
-    }
-}
-
 private data class Suggestion(val value: String, val title: String, val detail: String?, val icon: Int)
 
 /** Matches for what is being typed, above the text. Tapping one completes it. */
 @Composable
 private fun Suggestions(items: List<Suggestion>, onPick: (String) -> Unit) {
+    val c = Fp.colors
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
         items.forEach { s ->
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { onPick(s.value) }.padding(horizontal = 10.dp, vertical = 8.dp),
+                Modifier.fillMaxWidth().clip(Radius.md).clickable { onPick(s.value) }.padding(horizontal = 10.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Sym(s.icon, null, size = 18.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Sym(s.icon, null, size = 18.dp, tint = c.inkMuted)
                 Spacer(Modifier.width(10.dp))
-                Text(s.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                Text(s.title, style = FpType.label, color = c.ink, maxLines = 1)
                 s.detail?.let {
                     Spacer(Modifier.width(8.dp))
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(it, style = FpType.caption, color = c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
-        HorizontalDivider(Modifier.padding(top = 4.dp))
+        HorizontalDivider(Modifier.padding(top = 4.dp), color = c.line)
     }
 }
 
+/** Photos and files riding along: pressed-in chips with a thumbnail and a remove button. */
 @Composable
 private fun AttachmentRow(items: List<Attachment>, onRemove: (String) -> Unit) {
+    val c = Fp.colors
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items.forEach { a ->
-            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                Row(Modifier.height(44.dp).padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    when (a) {
-                        is Attachment.Image -> Image(a.preview, a.name, contentScale = ContentScale.Crop, modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)))
-                        is Attachment.File -> Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) { Sym(Ic.file, null, size = 20.dp, tint = MaterialTheme.colorScheme.primary) }
+            Row(Modifier.height(44.dp).pressed(Radius.md, c.surfaceSunken).padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                when (a) {
+                    is Attachment.Image -> Image(a.preview, a.name, contentScale = ContentScale.Crop, modifier = Modifier.size(36.dp).clip(Radius.sm))
+                    is Attachment.File -> Box(Modifier.size(36.dp).clip(Radius.sm).background(c.accentSoft), contentAlignment = Alignment.Center) {
+                        Sym(Ic.file, null, size = 18.dp, tint = c.onAccentSoft)
                     }
-                    Spacer(Modifier.width(6.dp))
-                    Text(a.name, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp))
-                    IconButton(onClick = { onRemove(a.id) }, modifier = Modifier.size(36.dp)) { Sym(Ic.close, "Remove ${a.name}", size = 16.dp) }
                 }
+                Spacer(Modifier.width(8.dp))
+                Text(a.name, style = FpType.caption, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp))
+                FpIconButton(Ic.close, "Remove ${a.name}", onClick = { onRemove(a.id) }, small = true)
             }
         }
     }
@@ -315,79 +337,43 @@ private fun AttachmentRow(items: List<Attachment>, onRemove: (String) -> Unit) {
 /** "Build · Sonnet ▾" with the mode's icon: the current mode and model in one chip. Tapping opens the combined picker. */
 @Composable
 private fun ModeModelChip(mode: String?, agent: String?, model: String, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Surface(onClick = onClick, shape = RoundedCornerShape(50), color = scheme.surfaceContainerHighest, modifier = Modifier.height(36.dp)) {
-        Row(Modifier.padding(start = 12.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Sym(if (mode != null) agentIcon(agent) else Ic.autoAwesome, null, size = 16.dp, tint = scheme.primary)
-            Spacer(Modifier.width(6.dp))
-            if (mode != null) {
-                Text(mode, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                Text(" · ", style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant)
-            }
-            Text(model, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 150.dp))
-            Sym(Ic.dropDown, "Change mode and model", size = 20.dp)
+    val c = Fp.colors
+    Row(
+        Modifier.height(34.dp).pressable(Radius.full, c.surface, onClick, label = "Change mode and model").padding(start = 12.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Sym(if (mode != null) agentIcon(agent) else Ic.autoAwesome, null, size = 16.dp, tint = c.ink)
+        Spacer(Modifier.width(6.dp))
+        if (mode != null) {
+            Text(mode, style = FpType.label, color = c.ink, maxLines = 1)
+            Text(" · ", style = FpType.label, color = c.inkMuted)
         }
+        Text(model, style = FpType.label.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(450)), color = c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp))
+        Sym(Ic.expandMore, null, size = 16.dp, tint = c.inkMuted)
     }
 }
 
+/**
+ * Idle: the send key. Working with nothing typed: the send key turns into stop. Working with text typed: stop,
+ * a "Later" chip that queues it for after this turn, and the send key, which steers the current turn.
+ */
 @Composable
 private fun SendControl(hasText: Boolean, running: Boolean, enabled: Boolean, onSend: (Boolean) -> Unit, onStop: () -> Unit) {
-    val mode = when {
-        running && hasText -> 2
-        running -> 1
-        else -> 0
-    }
-    val motion = MaterialTheme.motionScheme
-    AnimatedContent(
-        targetState = mode,
-        transitionSpec = { (scaleIn(motion.fastSpatialSpec()) + fadeIn()) togetherWith (scaleOut() + fadeOut()) },
-        label = "send",
-    ) { m ->
-        when (m) {
-            1 -> FilledIconButton(
-                onClick = onStop,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.size(48.dp),
-            ) { Sym(Ic.stop, "Stop") }
-            2 -> Row(verticalAlignment = Alignment.CenterVertically) {
-                FilledTonalIconButton(onClick = onStop, modifier = Modifier.size(40.dp)) { Sym(Ic.stop, "Stop", size = 20.dp) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        AnimatedVisibility(running && hasText, enter = fadeIn(Motion.settle()) + scaleIn(Motion.settle()), exit = fadeOut(Motion.quick()) + scaleOut(Motion.quick())) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FpIconButton(Ic.stop, "Stop", onClick = onStop)
+                FpChip("Later", onClick = { onSend(true) }, icon = Ic.schedule)
                 Spacer(Modifier.width(6.dp))
-                var menu by remember { mutableStateOf(false) }
-                Box {
-                    SplitButtonLayout(
-                        leadingButton = {
-                            SplitButtonDefaults.LeadingButton(onClick = { onSend(false) }, enabled = enabled) {
-                                Sym(Ic.arrowUp, null, size = 20.dp)
-                                Spacer(Modifier.width(4.dp))
-                                Text("Send")
-                            }
-                        },
-                        trailingButton = {
-                            SplitButtonDefaults.TrailingButton(checked = menu, onCheckedChange = { menu = it }, enabled = enabled) {
-                                Sym(Ic.expandMore, "More send options", size = 20.dp)
-                            }
-                        },
-                    )
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(
-                            text = { Column { Text("Send now"); Text("Steers the current turn", style = MaterialTheme.typography.bodySmall) } },
-                            leadingIcon = { Sym(Ic.arrowUp) },
-                            onClick = { menu = false; onSend(false) },
-                        )
-                        DropdownMenuItem(
-                            text = { Column { Text("Send when finished"); Text("Queues it for after this turn", style = MaterialTheme.typography.bodySmall) } },
-                            leadingIcon = { Sym(Ic.schedule) },
-                            onClick = { menu = false; onSend(true) },
-                        )
-                    }
-                }
             }
-            else -> FilledIconButton(
-                onClick = { onSend(false) },
-                enabled = enabled && hasText,
-                modifier = Modifier.size(48.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(),
-            ) { Sym(Ic.arrowUp, "Send") }
         }
+        SendKey(
+            state = when {
+                running && !hasText -> SendState.Stop
+                enabled && hasText -> SendState.Send
+                else -> SendState.Disabled
+            },
+            onClick = { if (running && !hasText) onStop() else onSend(false) },
+        )
     }
 }

@@ -2,6 +2,8 @@
 
 package dev.flowpilot.app.ui.newchat
 
+import dev.flowpilot.app.ui.components.FpSpinner
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.clickable
@@ -27,7 +29,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -178,7 +179,7 @@ private fun NewFolder(ui: NewChatUi, vm: NewChatViewModel, onStart: (String?) ->
         enabled = !ui.creating && ui.parent != null,
         modifier = Modifier.fillMaxWidth().padding(24.dp),
     ) {
-        if (ui.creating) LoadingIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary) else Text("Create and start chat")
+        if (ui.creating) FpSpinner(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary) else Text("Create and start chat")
     }
 }
 

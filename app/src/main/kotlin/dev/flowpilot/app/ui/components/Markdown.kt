@@ -46,6 +46,8 @@ import dev.flowpilot.core.chat.MdBlock
 import dev.flowpilot.app.ui.theme.CodeStyle
 import dev.flowpilot.app.ui.theme.FlowPilotColors
 import dev.flowpilot.app.ui.theme.code
+import dev.flowpilot.app.ui.theme.Radius
+import dev.flowpilot.app.ui.theme.pressed
 
 object Markdown {
     private val inline = Regex(
@@ -174,11 +176,12 @@ fun CodeBlock(code: String, lang: String = "", modifier: Modifier = Modifier, st
     val colors = MaterialTheme.code
     val clipboard = LocalClipboardManager.current
     val highlighted = remember(code, lang, colors) { Highlighter.highlight(code, lang, colors) }
-    Surface(color = colors.codeBg, contentColor = colors.codeInk, shape = MaterialTheme.shapes.medium, modifier = modifier.fillMaxWidth()) {
+    // A well pressed into the surface, as every place that holds code is.
+    Box(modifier.fillMaxWidth().pressed(Radius.md, colors.codeBg)) {
         Column {
             Row(Modifier.fillMaxWidth().padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(lang.ifEmpty { "code" }, style = MaterialTheme.typography.labelMedium, color = colors.codeComment, modifier = Modifier.weight(1f))
-                IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }) { Sym(Ic.copy, "Copy code", size = 18.dp, tint = colors.codeComment) }
+                FpIconButton(Ic.copy, "Copy code", onClick = { clipboard.setText(AnnotatedString(code)) }, small = true, tint = colors.codeComment)
             }
             SelectionContainer {
                 Text(
@@ -245,7 +248,7 @@ fun DiffView(patch: String, modifier: Modifier = Modifier, maxLines: Int = 400) 
     val lines = remember(patch) {
         patch.lines().filterNot { it.startsWith("diff --git") || it.startsWith("index ") || it.startsWith("---") || it.startsWith("+++") }.take(maxLines)
     }
-    Surface(color = c.codeBg, shape = MaterialTheme.shapes.medium, modifier = modifier.fillMaxWidth()) {
+    Box(modifier.fillMaxWidth().pressed(Radius.md, c.codeBg)) {
         Column(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
             lines.forEach { l ->
                 val (bg, fg) = when {
