@@ -14,12 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          # The open-source cache on GitHub's own cache storage, as v4 used; v6 defaults to a commercial provider.
+          cache-provider: basic
       - name: Core and repository tests
         run: ./gradlew :core:test :app:testDebugUnitTest --stacktrace
       - name: Android lint and instrumentation compilation
@@ -27,14 +30,14 @@ jobs:
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: flowpilot-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
       - name: Upload test reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-reports
           path: |
