@@ -46,6 +46,15 @@ import dev.flowpilot.app.ui.components.Ic
 import dev.flowpilot.app.ui.components.ListGroup
 import dev.flowpilot.app.ui.components.SectionHeader
 import dev.flowpilot.app.ui.components.Sym
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.TopAppBarDefaults
+import dev.flowpilot.app.ui.components.FpButton
+import dev.flowpilot.app.ui.components.FpIconButton
+import dev.flowpilot.app.ui.components.FpSegmented
+import dev.flowpilot.app.ui.components.FpSwitch
+import dev.flowpilot.app.ui.components.Segment
+import dev.flowpilot.app.ui.theme.Fp
+import dev.flowpilot.app.ui.theme.FpType
 import dev.flowpilot.app.ui.graph
 import dev.flowpilot.app.ui.theme.CodeSmallStyle
 import kotlinx.coroutines.launch
@@ -60,33 +69,40 @@ fun SettingsScreen(onBack: () -> Unit, onPair: () -> Unit, onModels: () -> Unit)
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     var forgetting by remember { mutableStateOf<SavedServer?>(null) }
 
-    Scaffold(topBar = {
-        TopAppBar(title = { Text("Settings") }, navigationIcon = { IconButton(onClick = onBack) { Sym(Ic.back, "Back") } })
-    }) { padding ->
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings", style = FpType.titleLg) },
+                navigationIcon = { FpIconButton(Ic.back, "Back", onClick = onBack, modifier = Modifier.padding(start = 4.dp)) },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Fp.colors.ground, scrolledContainerColor = Fp.colors.ground),
+            )
+        },
+        containerColor = Fp.colors.ground,
+    ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).navigationBarsPadding()) {
             SectionHeader("Computer")
             ListGroup {
                 servers.forEachIndexed { i, s ->
-                    if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.surface)
+                    if (i > 0) HorizontalDivider(color = Fp.colors.line)
                     val isCurrent = s.id == current?.server?.id
                     Row(
                         Modifier.fillMaxWidth().clickable(enabled = !isCurrent) { scope.launch { g.prefs.selectServer(s.id) } }.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Sym(Ic.dns, null, tint = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Sym(Ic.dns, null, tint = if (isCurrent) Fp.colors.accent else Fp.colors.inkMuted)
                         Spacer(Modifier.width(16.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(s.name + if (isCurrent) " · connected" else "", style = MaterialTheme.typography.bodyLarge)
+                            Text(s.name + if (isCurrent) " · connected" else "", style = FpType.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(500)), color = Fp.colors.ink)
                             Text(s.baseUrl + (s.version?.let { " · OpenCode $it" } ?: ""), style = CodeSmallStyle, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        IconButton(onClick = { forgetting = s }) { Sym(Ic.delete, "Forget ${s.name}") }
+                        FpIconButton(Ic.delete, "Forget ${s.name}", onClick = { forgetting = s })
                     }
                 }
-                if (servers.isNotEmpty()) HorizontalDivider(color = MaterialTheme.colorScheme.surface)
+                if (servers.isNotEmpty()) HorizontalDivider(color = Fp.colors.line)
                 Row(Modifier.fillMaxWidth().clickable(onClick = onPair).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Sym(Ic.qr, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Sym(Ic.qr, null, tint = Fp.colors.inkMuted)
                     Spacer(Modifier.width(16.dp))
-                    Text("Pair another computer", style = MaterialTheme.typography.bodyLarge)
+                    Text("Pair another computer", style = FpType.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(500)), color = Fp.colors.ink)
                 }
             }
 
@@ -105,35 +121,34 @@ fun SettingsScreen(onBack: () -> Unit, onPair: () -> Unit, onModels: () -> Unit)
             SectionHeader("Appearance")
             ListGroup {
                 Column(Modifier.padding(16.dp)) {
-                    Text("Theme", style = MaterialTheme.typography.bodyLarge)
-                    Spacer(Modifier.width(8.dp))
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                        ThemeMode.entries.forEachIndexed { i, m ->
-                            SegmentedButton(
-                                selected = settings.themeMode == m,
-                                onClick = { scope.launch { g.prefs.updateSettings { it.copy(themeMode = m) } } },
-                                shape = SegmentedButtonDefaults.itemShape(i, ThemeMode.entries.size),
-                            ) { Text(m.name) }
-                        }
-                    }
-                }
-                if (Build.VERSION.SDK_INT >= 31) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.surface)
-                    SwitchRow("Dynamic color", "Use colors from your wallpaper instead of jade", settings.dynamicColor) { v ->
-                        scope.launch { g.prefs.updateSettings { it.copy(dynamicColor = v) } }
-                    }
+                    Text("Theme", style = FpType.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(500)), color = Fp.colors.ink)
+                    Text(
+                        when (settings.themeMode) {
+                            ThemeMode.System -> "Follows your phone: Stone by day, Basalt at night."
+                            ThemeMode.Light -> "Stone: warm light surfaces."
+                            ThemeMode.Dark -> "Basalt: dark surfaces, easy on the eyes at night."
+                        },
+                        style = FpType.caption, color = Fp.colors.inkMuted,
+                    )
+                    FpSegmented(
+                        listOf(Segment(ThemeMode.System, "System"), Segment(ThemeMode.Light, "Light"), Segment(ThemeMode.Dark, "Dark")),
+                        settings.themeMode,
+                        { m -> scope.launch { g.prefs.updateSettings { it.copy(themeMode = m) } } },
+                        Modifier.fillMaxWidth().padding(top = 12.dp),
+                    )
                 }
             }
 
             SectionHeader("About")
             ListGroup {
                 Column(Modifier.padding(16.dp)) {
-                    Text("FlowPilot ${dev.flowpilot.app.BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyLarge)
-                    Text("A phone client for OpenCode 2.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = {
+                    Text("FlowPilot ${dev.flowpilot.app.BuildConfig.VERSION_NAME}", style = FpType.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(500)), color = Fp.colors.ink)
+                    Text("A phone client for OpenCode 2.", style = FpType.caption, color = Fp.colors.inkMuted)
+                    Spacer(Modifier.height(12.dp))
+                    FpButton("Copy connection diagnostics", small = true, icon = Ic.copy, onClick = {
                         val report = "FlowPilot ${dev.flowpilot.app.BuildConfig.VERSION_NAME}\nServer ${current?.serverVersion?.value ?: "unknown"}\nConnection ${current?.state?.value}\n" + dev.flowpilot.core.sync.Diagnostics.export()
                         clipboard.setText(androidx.compose.ui.text.AnnotatedString(report))
-                    }) { Text("Copy connection diagnostics") }
+                    })
                 }
             }
             Spacer(Modifier.padding(PaddingValues(bottom = 24.dp)))
@@ -158,13 +173,13 @@ fun SettingsScreen(onBack: () -> Unit, onPair: () -> Unit, onModels: () -> Unit)
 @Composable
 private fun NavRow(icon: Int, title: String, body: String?, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Sym(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Sym(icon, null, tint = Fp.colors.inkMuted)
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            if (body != null) Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(title, style = FpType.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(500)), color = Fp.colors.ink)
+            if (body != null) Text(body, style = FpType.caption, color = Fp.colors.inkMuted)
         }
-        Sym(Ic.chevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Sym(Ic.chevronRight, null, tint = Fp.colors.inkMuted)
     }
 }
 
@@ -172,10 +187,10 @@ private fun NavRow(icon: Int, title: String, body: String?, onClick: () -> Unit)
 fun SwitchRow(title: String, body: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            if (body != null) Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(title, style = FpType.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(500)), color = Fp.colors.ink)
+            if (body != null) Text(body, style = FpType.caption, color = Fp.colors.inkMuted)
         }
         Spacer(Modifier.width(16.dp))
-        Switch(checked = checked, onCheckedChange = onChange, thumbContent = if (checked) { { Sym(Ic.check, null, size = 16.dp) } } else null)
+        FpSwitch(checked, onChange)
     }
 }

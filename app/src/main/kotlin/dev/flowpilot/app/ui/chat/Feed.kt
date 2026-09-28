@@ -2,6 +2,8 @@
 
 package dev.flowpilot.app.ui.chat
 
+import dev.flowpilot.app.ui.components.FpSpinner
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.RepeatMode
@@ -28,7 +30,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -60,6 +61,15 @@ import dev.flowpilot.app.ui.components.Sym
 import dev.flowpilot.app.ui.theme.CodeFamily
 import dev.flowpilot.app.ui.theme.CodeSmallStyle
 import dev.flowpilot.app.ui.theme.code
+import dev.flowpilot.app.ui.theme.Fp
+import dev.flowpilot.app.ui.theme.FpType
+import dev.flowpilot.app.ui.theme.Radius
+import dev.flowpilot.app.ui.theme.pressed
+import dev.flowpilot.app.ui.theme.raised
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
 import dev.flowpilot.core.api.ApiError
 import dev.flowpilot.core.chat.ChatEntry
 import dev.flowpilot.core.chat.Format
@@ -73,18 +83,28 @@ import kotlinx.coroutines.delay
 fun UserBubble(entry: ChatEntry.User, onRetry: () -> Unit) {
     val maxWidth = (LocalConfiguration.current.screenWidthDp * 0.85f).dp
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
-        Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 6.dp),
-            modifier = Modifier.widthIn(max = maxWidth).alpha(if (entry.pending) 0.7f else 1f),
+        // The person's own words: accent-soft, one tighter corner toward the edge they came from.
+        Box(
+            Modifier.widthIn(max = maxWidth).alpha(if (entry.pending) 0.7f else 1f)
+                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 8.dp))
+                .background(Fp.colors.accentSoft),
         ) {
             SelectionContainer {
-                Text(entry.text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                Text(entry.text, style = FpType.bodyLg, color = Fp.colors.onAccentSoft, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
             }
         }
         if (entry.files.isNotEmpty()) {
-            Text(entry.files.joinToString { it.substringAfterLast('/') }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                entry.files.take(4).forEach { f ->
+                    val name = f.substringAfterLast('/')
+                    val image = name.substringAfterLast('.').lowercase() in setOf("png", "jpg", "jpeg", "webp", "gif") || f.startsWith("image/")
+                    Row(Modifier.height(28.dp).pressed(Radius.full, Fp.colors.surfaceSunken).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Sym(if (image) Ic.image else Ic.file, null, size = 14.dp, tint = Fp.colors.inkMuted)
+                        Spacer(Modifier.width(4.dp))
+                        Text(name, style = FpType.caption, color = Fp.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp))
+                    }
+                }
+            }
         }
         if (entry.failed) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -130,12 +150,12 @@ fun ReasoningRow(part: Part.Reasoning) {
         }
         if (open) {
             val shown = rememberStreamReveal(part.text, part.streaming)
+            // Process, not the answer: a quiet well in ink-muted, never the accent.
             Text(
                 part.text.substring(0, shown),
-                style = MaterialTheme.typography.bodyMedium,
-                fontStyle = FontStyle.Italic,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 26.dp, bottom = 8.dp),
+                style = FpType.body.copy(fontSize = 14.sp, lineHeight = 21.sp),
+                color = Fp.colors.inkMuted,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).pressed(Radius.md, Fp.colors.surfaceSunken).padding(horizontal = 16.dp, vertical = 12.dp),
             )
         }
     }
@@ -159,23 +179,23 @@ fun WorkGroup(tools: List<Part.Tool>, live: Boolean) {
     var open by rememberSaveable(tools.first().id) { mutableStateOf(false) }
     val expanded = live || open
     val failed = tools.count { it.status == ToolStatus.Error }
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
+    Box(Modifier.fillMaxWidth().raised(Radius.lg, Fp.colors.surface)) {
         Column(Modifier.animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec())) {
             Row(
                 Modifier.fillMaxWidth().clickable(enabled = !live) { open = !open }.padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (live) LoadingIndicator(Modifier.size(20.dp)) else Sym(if (failed > 0) Ic.warning else Ic.checkCircle, null, size = 20.dp, tint = if (failed > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                if (live) FpSpinner(Modifier.size(18.dp)) else Sym(if (failed > 0) Ic.warning else Ic.check, null, size = 20.dp, tint = if (failed > 0) Fp.colors.danger else Fp.colors.success)
                 Spacer(Modifier.width(10.dp))
                 val header = if (live) {
                     val cur = tools.lastOrNull { it.status == ToolStatus.Running || it.status == ToolStatus.Streaming } ?: tools.last()
                     ToolDescriber.describe(cur).let { "${it.verb} ${it.target}".trim() }
                 } else ToolDescriber.summary(tools)
-                Text(header, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(header, style = FpType.label, color = Fp.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 if (!live) Sym(if (open) Ic.expandLess else Ic.expandMore, if (open) "Collapse" else "Expand", size = 20.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (expanded) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                HorizontalDivider(color = Fp.colors.line)
                 Column(Modifier.padding(vertical = 4.dp)) { tools.forEach { ToolRow(it) } }
             }
         }
@@ -197,7 +217,7 @@ fun ToolRow(tool: Part.Tool) {
         ) {
             Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
                 when (tool.status) {
-                    ToolStatus.Running, ToolStatus.Streaming -> LoadingIndicator(Modifier.size(18.dp))
+                    ToolStatus.Running, ToolStatus.Streaming -> FpSpinner(Modifier.size(18.dp))
                     ToolStatus.Error -> Sym(Ic.error, "Failed", size = 18.dp, tint = scheme.error)
                     ToolStatus.Completed -> Sym(Ic.tool(text.icon), null, size = 18.dp, tint = scheme.onSurfaceVariant)
                 }
@@ -271,27 +291,27 @@ fun MarkerLine(entry: ChatEntry.Marker) {
     val icon = when (entry.kind) {
         MarkerKind.Stopped -> Ic.stopCircle
         MarkerKind.Failed -> Ic.error
-        MarkerKind.AgentSwitched -> Ic.build
+        MarkerKind.AgentSwitched -> if (entry.text.contains("plan", ignoreCase = true)) Ic.checklist else Ic.build
         MarkerKind.ModelSwitched -> Ic.autoAwesome
         MarkerKind.Compaction -> Ic.unfoldLess
         MarkerKind.Moved -> Ic.folder
         MarkerKind.Synthetic -> Ic.info
     }
     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+        HorizontalDivider(Modifier.weight(1f), color = Fp.colors.line)
         Spacer(Modifier.width(8.dp))
         Sym(icon, null, size = 16.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(6.dp))
         Text(entry.text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(8.dp))
-        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+        HorizontalDivider(Modifier.weight(1f), color = Fp.colors.line)
     }
 }
 
 @Composable
 fun ShellEntry(entry: ChatEntry.Shell) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("You ran" + (entry.exit?.let { " · exit ${it.toInt()}" } ?: ""), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("You ran" + (entry.exit?.let { " · exit ${it.toInt()}" } ?: ""), style = FpType.caption, color = Fp.colors.inkMuted)
         CodeBlock("$ " + entry.command + (entry.output?.let { "\n" + it.take(8000) } ?: ""), "sh", maxLines = 30)
     }
 }

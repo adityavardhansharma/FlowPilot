@@ -2,6 +2,8 @@
 
 package dev.flowpilot.app.ui.pairing
 
+import dev.flowpilot.app.ui.components.FpSpinner
+
 import dev.flowpilot.core.sync.catching
 
 import android.Manifest
@@ -41,7 +43,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -105,7 +106,7 @@ fun PairingScreen(onPaired: () -> Unit, onBack: (() -> Unit)? = null) {
                 PairStep.Scan -> Scan(ui.scanError, vm::onScanned, onManual = { vm.go(PairStep.Manual) }, onBack = { vm.go(PairStep.Welcome) })
                 PairStep.Manual -> Manual(ui, vm, onConnect = { lan { vm.connectManually() } }, onBack = { vm.go(PairStep.Welcome) })
                 PairStep.Connecting -> Center {
-                    LoadingIndicator(Modifier.size(72.dp))
+                    FpSpinner(Modifier.size(72.dp))
                     Spacer(Modifier.height(24.dp))
                     Text("Connecting…", style = MaterialTheme.typography.titleLarge)
                 }

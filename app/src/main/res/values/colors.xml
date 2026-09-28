@@ -1,4 +1,5 @@
 <resources>
-    <color name="surface">#F6FAF8</color>
-    <color name="launcher_bg">#216A5E</color>
+    <!-- ground (Stone). The window shows it before Compose draws. -->
+    <color name="surface">#EBEAE6</color>
+    <color name="launcher_bg">#1D6B66</color>
 </resources>

@@ -27,7 +27,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -54,6 +53,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.flowpilot.app.R
+import dev.flowpilot.app.ui.theme.Fp
+import dev.flowpilot.app.ui.theme.FpType
+import dev.flowpilot.app.ui.theme.Radius
+import dev.flowpilot.app.ui.theme.pressable
+import dev.flowpilot.app.ui.theme.pressed
+import dev.flowpilot.app.ui.theme.raised
 import dev.flowpilot.app.data.LinkState
 import dev.flowpilot.core.chat.ToolIcon
 import kotlinx.coroutines.delay
@@ -125,6 +130,7 @@ object Ic {
     val tree = R.drawable.ic_account_tree
     val file = R.drawable.ic_description
     val bolt = R.drawable.ic_bolt
+    val slash = R.drawable.ic_slash
 
     fun tool(icon: ToolIcon): Int = when (icon) {
         ToolIcon.Read -> R.drawable.ic_description
@@ -164,13 +170,14 @@ fun ServerChip(name: String, state: LinkState, onClick: () -> Unit, modifier: Mo
         if (state == LinkState.Unauthorized || state == LinkState.Unsupported) showTrouble = true
     }
     val trouble = showTrouble && state != LinkState.Online
+    val c = Fp.colors
     val container = when {
-        trouble && state == LinkState.Unauthorized -> MaterialTheme.colorScheme.errorContainer
-        trouble -> MaterialTheme.colorScheme.surfaceContainerHighest
-        else -> MaterialTheme.colorScheme.secondaryContainer
+        trouble && state == LinkState.Unauthorized -> c.dangerSoft
+        else -> c.surface
     }
-    Surface(onClick = onClick, shape = CircleShape, color = container, modifier = modifier.height(36.dp)) {
-        Row(Modifier.padding(start = 10.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    val ink = if (trouble && state == LinkState.Unauthorized) c.onDangerSoft else c.ink
+    Row(modifier.height(36.dp).pressable(Radius.full, container, onClick).padding(start = 12.dp, end = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        OnSurface(ink) {
             if (trouble && state != LinkState.Unauthorized) {
                 val t = rememberInfiniteTransition(label = "sync")
                 val angle by t.animateFloat(0f, -360f, infiniteRepeatable(tween(1200)), label = "angle")
@@ -178,7 +185,7 @@ fun ServerChip(name: String, state: LinkState, onClick: () -> Unit, modifier: Mo
             } else if (trouble) {
                 Sym(Ic.lock, null, size = 18.dp)
             } else {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+                BreathingDot(c.accent)
             }
             Spacer(Modifier.width(8.dp))
             Text(
@@ -190,7 +197,7 @@ fun ServerChip(name: String, state: LinkState, onClick: () -> Unit, modifier: Mo
                     trouble -> "Reconnecting"
                     else -> name
                 },
-                style = MaterialTheme.typography.labelLarge,
+                style = FpType.label,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.widthIn(max = 140.dp),
@@ -199,35 +206,9 @@ fun ServerChip(name: String, state: LinkState, onClick: () -> Unit, modifier: Mo
     }
 }
 
-private val projectShapes by lazy {
-    listOf(
-        MaterialShapes.Cookie9Sided, MaterialShapes.Clover4Leaf, MaterialShapes.Sunny, MaterialShapes.Pill,
-        MaterialShapes.Gem, MaterialShapes.Cookie6Sided, MaterialShapes.Flower, MaterialShapes.Puffy,
-        MaterialShapes.Pentagon, MaterialShapes.SoftBurst, MaterialShapes.Arch, MaterialShapes.Cookie12Sided,
-    )
-}
-
-/** Each project gets a stable shape and tone from its name, so it's recognisable at a glance. */
+/** Each project is a pebble with its initial: FlowPilot's own shape, recognisable at a glance. */
 @Composable
-fun ProjectShape(name: String, size: Dp = 40.dp, muted: Boolean = false) {
-    val h = (name.hashCode() and 0x7fffffff)
-    val shape = projectShapes[h % projectShapes.size].toShape()
-    val scheme = MaterialTheme.colorScheme
-    val (bg, fg) = when {
-        muted -> scheme.surfaceContainerHighest to scheme.onSurfaceVariant
-        h % 3 == 0 -> scheme.primaryContainer to scheme.onPrimaryContainer
-        h % 3 == 1 -> scheme.secondaryContainer to scheme.onSecondaryContainer
-        else -> scheme.surfaceContainerHighest to scheme.onSurface
-    }
-    Box(Modifier.size(size).clip(shape).background(bg), contentAlignment = Alignment.Center) {
-        Text(
-            name.trim().firstOrNull { it.isLetterOrDigit() }?.uppercase() ?: "·",
-            color = fg,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = (size.value * 0.42f).sp,
-        )
-    }
-}
+fun ProjectShape(name: String, size: Dp = 40.dp, muted: Boolean = false) = Pebble(name, size, muted = muted)
 
 /** One line of what this place is for and one action. No illustration. */
 @Composable
@@ -248,45 +229,45 @@ fun EmptyState(
     ) {
         if (icon != null) {
             Box(
-                Modifier.size(72.dp).clip(MaterialShapes.Cookie9Sided.toShape()).background(MaterialTheme.colorScheme.secondaryContainer),
+                Modifier.size(72.dp).pressed(PebbleShape, Fp.colors.surfaceSunken),
                 contentAlignment = Alignment.Center,
-            ) { Sym(icon, null, tint = MaterialTheme.colorScheme.onSecondaryContainer, size = 32.dp) }
+            ) { Sym(icon, null, tint = Fp.colors.inkMuted, size = 30.dp) }
             Spacer(Modifier.height(20.dp))
         }
-        Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+        Text(title, style = FpType.titleLg, textAlign = TextAlign.Center, color = Fp.colors.ink)
         if (body != null) {
             Spacer(Modifier.height(8.dp))
             Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
         if (action != null && onAction != null) {
             Spacer(Modifier.height(24.dp))
-            Button(onClick = onAction) { Text(action) }
+            FpButton(action, onAction, variant = FpButtonVariant.Primary)
         }
         if (secondary != null && onSecondary != null) {
-            TextButton(onClick = onSecondary) { Text(secondary) }
+            Spacer(Modifier.height(8.dp))
+            FpButton(secondary, onSecondary, variant = FpButtonVariant.Ghost)
         }
     }
 }
 
-/** An inline, recoverable error at the place of failure. */
+/** An inline, recoverable error at the place of failure: danger-soft, an alert icon, one action. */
 @Composable
 fun ErrorCard(title: String, body: String?, modifier: Modifier = Modifier, action: String? = "Retry", onAction: (() -> Unit)? = null) {
-    Surface(color = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer, shape = MaterialTheme.shapes.large, modifier = modifier.fillMaxWidth()) {
-        Row(Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Sym(Ic.error, null, size = 20.dp)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleSmall)
-                if (!body.isNullOrBlank()) Text(body, style = MaterialTheme.typography.bodyMedium, maxLines = 6, overflow = TextOverflow.Ellipsis)
-            }
-            if (action != null && onAction != null) TextButton(onClick = onAction) { Text(action, color = MaterialTheme.colorScheme.onErrorContainer) }
+    val c = Fp.colors
+    Row(modifier.fillMaxWidth().raised(Radius.lg, c.dangerSoft).padding(start = 16.dp, top = 14.dp, bottom = 14.dp, end = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Sym(Ic.error, null, size = 20.dp, tint = c.onDangerSoft)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = FpType.label.copy(fontWeight = FontWeight(600)), color = c.onDangerSoft)
+            if (!body.isNullOrBlank()) Text(body, style = FpType.body, color = c.onDangerSoft, maxLines = 6, overflow = TextOverflow.Ellipsis)
         }
+        if (action != null && onAction != null) { Spacer(Modifier.width(8.dp)); FpButton(action, onAction, small = true) }
     }
 }
 
 @Composable
 fun LoadingRow(modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.size(36.dp)) }
+    Box(modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { FpSpinner(Modifier.size(36.dp)) }
 }
 
 @Composable
@@ -294,7 +275,7 @@ fun CenteredLoading(slowHint: Boolean = true) {
     var slow by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { delay(10_000); slow = true }
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        LoadingIndicator(Modifier.size(56.dp))
+        FpSpinner(Modifier.size(56.dp))
         if (slow && slowHint) {
             Spacer(Modifier.height(16.dp))
             Text("Still loading. Your computer may be busy.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -318,20 +299,20 @@ fun SkeletonRow() {
     }
 }
 
-/** Section header used by lists and sheets. */
+/** Section header used by lists and sheets: an overline in capitals. */
 @Composable
-fun SectionHeader(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant, trailing: (@Composable () -> Unit)? = null) {
-    Row(modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 20.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(text, style = MaterialTheme.typography.titleSmall, color = color, modifier = Modifier.weight(1f))
+fun SectionHeader(text: String, modifier: Modifier = Modifier, color: Color = Fp.colors.inkMuted, trailing: (@Composable () -> Unit)? = null) {
+    Row(modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 24.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(text.uppercase(), style = FpType.overline, color = color, modifier = Modifier.weight(1f))
         trailing?.invoke()
     }
 }
 
-/** A rounded group container for list rows, like the segmented lists in the design system. */
+/** Rows that belong together share one raised card on the ground, split by hairlines. */
 @Composable
 fun ListGroup(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.extraLarge, modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Column { content() }
+    Column(modifier.fillMaxWidth().padding(horizontal = 16.dp).raised(Radius.lg, Fp.colors.surface)) {
+        OnSurface { content() }
     }
 }
 

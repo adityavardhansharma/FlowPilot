@@ -2,6 +2,8 @@
 
 package dev.flowpilot.app.ui.chat
 
+import dev.flowpilot.app.ui.components.FpSpinner
+
 import dev.flowpilot.core.sync.catching
 
 import androidx.compose.animation.AnimatedVisibility
@@ -35,7 +37,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -76,6 +77,13 @@ import dev.flowpilot.app.ui.components.Ic
 import dev.flowpilot.app.ui.components.LoadingRow
 import dev.flowpilot.app.ui.components.ProjectShape
 import dev.flowpilot.app.ui.components.Sym
+import dev.flowpilot.app.ui.components.BreathingDot
+import dev.flowpilot.app.ui.components.FpIconButton
+import dev.flowpilot.app.ui.theme.Fp
+import dev.flowpilot.app.ui.theme.FpType
+import dev.flowpilot.app.ui.theme.Radius
+import dev.flowpilot.app.ui.theme.pressable
+import dev.flowpilot.app.ui.theme.raised
 import dev.flowpilot.app.ui.graph
 import dev.flowpilot.core.chat.ChatEntry
 import dev.flowpilot.core.chat.FeedItem
@@ -161,27 +169,27 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
             TopAppBar(
                 title = {
                     Column {
-                        Text(ui.title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(ui.title, style = FpType.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         val sub = ui.projectName.ifEmpty { ui.directory?.substringAfterLast('/') ?: "" }
-                        if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        if (sub.isNotEmpty()) Text(sub, style = FpType.caption, color = Fp.colors.inkMuted, maxLines = 1)
                     }
                 },
-                navigationIcon = { IconButton(onClick = onBack) { Sym(Ic.back, "Back") } },
+                navigationIcon = { FpIconButton(Ic.back, "Back", onClick = onBack, modifier = Modifier.padding(start = 4.dp)) },
                 actions = {
                     if (!ui.isNew) Box {
-                        IconButton(onClick = { menu = true }) { Sym(Ic.more, "More") }
+                        FpIconButton(Ic.more, "More", onClick = { menu = true })
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { Sym(Ic.editSquare) }, onClick = { menu = false; renaming = true })
                             DropdownMenuItem(text = { Text("Refresh") }, leadingIcon = { Sym(Ic.refresh) }, onClick = { menu = false; vm.load() })
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Fp.colors.ground, scrolledContainerColor = Fp.colors.ground),
             )
         },
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { SnackbarHost(snackbar) { dev.flowpilot.app.ui.components.FpToast(it) } },
         contentWindowInsets = WindowInsets(0),
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = Fp.colors.ground,
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
             if (ui.syncing || (ui.loadError != null && chat.entries.isNotEmpty())) {
@@ -311,16 +319,12 @@ private fun ChatRow(row: Row0, ui: ChatUi, vm: ChatViewModel) {
 @Composable
 private fun JumpToLatest(visible: Boolean, unseen: Int, modifier: Modifier, onClick: () -> Unit) {
     AnimatedVisibility(visible, enter = scaleIn() + fadeIn(), exit = scaleOut() + fadeOut(), modifier = modifier) {
-        Surface(
-            onClick = onClick,
-            shape = MaterialTheme.shapes.extraLarge,
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            shadowElevation = 3.dp,
+        Row(
+            Modifier.height(40.dp).pressable(Radius.full, Fp.colors.surfaceRaised, onClick, label = "Jump to latest").padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(Modifier.height(40.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Sym(Ic.jump, "Jump to latest", size = 20.dp)
-                if (unseen > 0) { Spacer(Modifier.width(6.dp)); Text("$unseen new", style = MaterialTheme.typography.labelLarge) }
-            }
+            Sym(Ic.jump, "Jump to latest", size = 20.dp, tint = Fp.colors.ink)
+            if (unseen > 0) { Spacer(Modifier.width(6.dp)); Text("$unseen new", style = FpType.label, color = Fp.colors.ink) }
         }
     }
 }
@@ -330,33 +334,30 @@ private fun WaitingRow() {
     var show by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { delay(1500); show = true }
     if (show) Row(verticalAlignment = Alignment.CenterVertically) {
-        LoadingIndicator(Modifier.size(24.dp))
+        FpSpinner(Modifier.size(24.dp))
         Spacer(Modifier.width(10.dp))
         Text("Starting…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     } else Spacer(Modifier.height(24.dp))
 }
 
-/** "Working · 0:42", or amber "Needs you · 1 approval" while something waits on the user. */
+/** "Working · 0:42" with a breathing dot, or amber "Needs you · 1 approval" while something waits on the person. */
 @Composable
 private fun WorkingPill(startedAt: Long?, needsYou: Int) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(1000) } }
-    val scheme = MaterialTheme.colorScheme
+    val c = Fp.colors
     val amber = needsYou > 0
-    Surface(
-        color = if (amber) scheme.tertiaryContainer else scheme.secondaryContainer,
-        contentColor = if (amber) scheme.onTertiaryContainer else scheme.onSecondaryContainer,
-        shape = MaterialTheme.shapes.extraLarge,
-        shadowElevation = 2.dp,
-        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+    val ink = if (amber) c.onAmberSoft else c.onAccentSoft
+    Row(
+        Modifier.height(32.dp).raised(Radius.full, if (amber) c.amberSoft else c.accentSoft, lift = true)
+            .semantics { liveRegion = LiveRegionMode.Polite }.padding(start = 10.dp, end = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(Modifier.height(36.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (amber) Sym(Ic.lock, null, size = 18.dp) else LoadingIndicator(Modifier.size(20.dp), color = scheme.onSecondaryContainer)
-            Spacer(Modifier.width(8.dp))
-            val text = if (amber) "Needs you · " + if (needsYou == 1) "1 approval" else "$needsYou approvals"
-            else "Working" + (startedAt?.let { " · " + Format.duration((now - it).coerceAtLeast(0)) } ?: "")
-            Text(text, style = MaterialTheme.typography.labelLarge)
-        }
+        if (amber) Sym(Ic.lock, null, size = 16.dp, tint = ink) else BreathingDot(ink)
+        Spacer(Modifier.width(8.dp))
+        val text = if (amber) "Needs you · " + if (needsYou == 1) "1 approval" else "$needsYou approvals"
+        else "Working" + (startedAt?.let { " · " + Format.duration((now - it).coerceAtLeast(0)) } ?: "")
+        Text(text, style = FpType.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(500)), color = ink)
     }
 }
 
@@ -365,8 +366,8 @@ private fun NewChatHero(project: String) {
     Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         ProjectShape(project, 72.dp, muted = project == "No project")
         Spacer(Modifier.height(16.dp))
-        Text(project, style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(4.dp))
-        Text("What should the agent do?", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("What should the agent do?", style = FpType.display, color = Fp.colors.ink, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Spacer(Modifier.height(8.dp))
+        Text(project, style = FpType.body, color = Fp.colors.inkMuted)
     }
 }

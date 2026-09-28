@@ -41,6 +41,12 @@ import androidx.compose.ui.unit.dp
 import dev.flowpilot.app.ui.components.Ic
 import dev.flowpilot.app.ui.components.SectionHeader
 import dev.flowpilot.app.ui.components.Sym
+import dev.flowpilot.app.ui.components.FpChip
+import dev.flowpilot.app.ui.components.FpSegmented
+import dev.flowpilot.app.ui.components.Segment
+import dev.flowpilot.app.ui.theme.Fp
+import dev.flowpilot.app.ui.theme.FpType
+import dev.flowpilot.app.ui.theme.Radius
 import dev.flowpilot.app.ui.home.SearchField
 import dev.flowpilot.core.api.Agent
 import dev.flowpilot.core.api.Model
@@ -93,21 +99,25 @@ fun ModelPickerSheet(
     val groups = filtered.groupBy { it.providerID }.toSortedMap()
 
     val pick: (ModelRef, Boolean) -> Unit = { ref, close -> onSelect(ref); if (close) onDismiss() }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss, sheetState = sheet,
+        containerColor = Fp.colors.surfaceRaised, contentColor = Fp.colors.ink, tonalElevation = 0.dp,
+        scrimColor = Fp.colors.scrim, shape = Radius.xl.copy(bottomStart = androidx.compose.foundation.shape.CornerSize(0.dp), bottomEnd = androidx.compose.foundation.shape.CornerSize(0.dp)),
+    ) {
         Column(Modifier.fillMaxWidth()) {
             if (agents.isNotEmpty()) {
-                Text("Mode", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp))
-                AgentChoice(agents, agent, onAgent, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp))
+                Text("Mode", style = FpType.title, modifier = Modifier.padding(horizontal = 24.dp))
+                AgentChoice(agents, agent, onAgent, Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp))
                 agents.firstOrNull { it.id == agent }?.description?.takeIf { it.isNotBlank() }?.let {
                     Text(
-                        it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        it, style = FpType.caption, color = Fp.colors.inkMuted,
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp),
                     )
                 }
-                HorizontalDivider(Modifier.padding(bottom = 12.dp))
+                HorizontalDivider(Modifier.padding(top = 8.dp, bottom = 16.dp), color = Fp.colors.line)
             }
-            Text("Model", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp))
+            Text("Model", style = FpType.title, modifier = Modifier.padding(horizontal = 24.dp))
             SearchField(query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), placeholder = "Search models")
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
                 if (recentModels.isNotEmpty()) {
@@ -155,46 +165,37 @@ private fun ModelRow(m: Model, selected: ModelRef?, onPick: (ModelRef, Boolean) 
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text(m.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(m.name, style = FpType.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(500)), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val sup = m.supporting()
-                if (sup.isNotEmpty()) Text(sup, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (sup.isNotEmpty()) Text(sup, style = FpType.caption, color = Fp.colors.inkMuted)
             }
-            if (isSelected) Sym(Ic.check, "Selected", size = 20.dp, tint = MaterialTheme.colorScheme.primary)
+            if (isSelected) Sym(Ic.check, "Selected", size = 20.dp, tint = Fp.colors.accent)
         }
         if (isSelected && m.variants.isNotEmpty()) {
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(start = 24.dp, end = 24.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = selected?.variant == null, onClick = { onPick(m.ref, true) }, label = { Text("Default") })
+                FpChip("Default", onClick = { onPick(m.ref, true) }, selected = selected?.variant == null)
                 m.variants.forEach { v ->
-                    FilterChip(selected = selected?.variant == v.id, onClick = { onPick(m.ref.copy(variant = v.id), true) }, label = { Text(v.id.replaceFirstChar { it.uppercase() }) })
+                    FpChip(v.id.replaceFirstChar { it.uppercase() }, onClick = { onPick(m.ref.copy(variant = v.id), true) }, selected = selected?.variant == v.id)
                 }
             }
         }
     }
 }
 
-/** Connected toggle buttons, one per primary agent, filling the row; scrolls sideways past three. */
+/** The mode as a sliding segmented control: Build, Plan, or a custom primary agent. Past three, a row of chips. */
 @Composable
 private fun AgentChoice(agents: List<Agent>, selected: String?, onSelect: (String) -> Unit, modifier: Modifier) {
-    val haptic = LocalHapticFeedback.current
-    val fill = agents.size <= 3
-    Row(
-        (if (fill) modifier else modifier.horizontalScroll(rememberScrollState())),
-        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-    ) {
-        agents.forEachIndexed { i, a ->
-            ToggleButton(
-                checked = a.id == selected,
-                onCheckedChange = { if (a.id != selected) { haptic.performHapticFeedback(HapticFeedbackType.SegmentTick); onSelect(a.id) } },
-                shapes = when (i) {
-                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                    agents.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                },
-                modifier = if (fill) Modifier.weight(1f) else Modifier,
-            ) {
-                Sym(agentIcon(a.id), null, size = 18.dp)
-                Spacer(Modifier.width(8.dp))
-                Text(a.name.replaceFirstChar { it.uppercase() }, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    if (agents.size <= 3) {
+        FpSegmented(
+            agents.map { Segment(it.id, it.name.replaceFirstChar { c -> c.uppercase() }, agentIcon(it.id)) },
+            selected ?: agents.first().id,
+            onSelect,
+            modifier,
+        )
+    } else {
+        Row(modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            agents.forEach { a ->
+                FpChip(a.name.replaceFirstChar { it.uppercase() }, onClick = { if (a.id != selected) onSelect(a.id) }, icon = agentIcon(a.id), selected = a.id == selected)
             }
         }
     }

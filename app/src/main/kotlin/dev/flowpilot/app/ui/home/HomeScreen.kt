@@ -54,6 +54,14 @@ import dev.flowpilot.app.ui.components.SectionHeader
 import dev.flowpilot.app.ui.components.ServerChip
 import dev.flowpilot.app.ui.components.SkeletonRow
 import dev.flowpilot.app.ui.components.Sym
+import androidx.compose.foundation.lazy.itemsIndexed
+import dev.flowpilot.app.ui.components.FpChip
+import dev.flowpilot.app.ui.components.FpIconButton
+import dev.flowpilot.app.ui.components.listSegment
+import dev.flowpilot.app.ui.theme.Fp
+import dev.flowpilot.app.ui.theme.FpType
+import dev.flowpilot.app.ui.theme.Radius
+import dev.flowpilot.app.ui.theme.pressed
 import dev.flowpilot.core.home.HomeFilter
 import dev.flowpilot.core.home.ThreadRowModel
 
@@ -96,11 +104,12 @@ fun HomeScreen(
             ServerChip(vm.conn.server.name, link, onClick = onSettings)
             Spacer(Modifier.size(8.dp))
             SearchField(ui.query, vm::setQuery, Modifier.weight(1f))
-            IconButton(onClick = onSettings) { Sym(Ic.settings, "Settings") }
+            Spacer(Modifier.size(4.dp))
+            FpIconButton(Ic.settings, "Settings", onClick = onSettings)
         }
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             HomeFilter.entries.forEach { f ->
-                FilterChip(selected = ui.filter == f, onClick = { vm.setFilter(f) }, label = { Text(f.label) })
+                FpChip(f.label, onClick = { vm.setFilter(f) }, selected = ui.filter == f)
             }
         }
         if (link == LinkState.Unauthorized) {
@@ -125,21 +134,22 @@ fun HomeScreen(
                     if (ui.error != null && query.isEmpty()) item("offline") {
                         Text(
                             "Offline. Showing saved chats.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            style = FpType.caption,
+                            color = Fp.colors.inkMuted,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                         )
                     }
                     if (query.isNotEmpty()) {
-                        items(searchRows, key = { "q" + it.session.id }) { r ->
-                            ThreadRow(r, projectName(r), onClick = { onOpenChat(r.session.id) }, onLongClick = { menuFor = r })
+                        item("qh") { Spacer(Modifier.height(12.dp)) }
+                        itemsIndexed(searchRows, key = { _, r -> "q" + r.session.id }) { i, r ->
+                            ThreadRow(r, projectName(r), onClick = { onOpenChat(r.session.id) }, onLongClick = { menuFor = r }, modifier = Modifier.listSegment(i, searchRows.size))
                         }
                     } else groups.forEach { g ->
                         item("h" + g.label, contentType = "header") {
-                            SectionHeader(g.label, color = if (g.attention) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            SectionHeader(g.label, color = if (g.attention) Fp.colors.amber else Fp.colors.inkMuted)
                         }
-                        items(g.rows, key = { g.label + it.session.id }, contentType = { "row" }) { r ->
-                            ThreadRow(r, projectName(r), onClick = { onOpenChat(r.session.id) }, onLongClick = { menuFor = r }, modifier = Modifier.animateItem())
+                        itemsIndexed(g.rows, key = { _, r -> g.label + r.session.id }, contentType = { _, _ -> "row" }) { i, r ->
+                            ThreadRow(r, projectName(r), onClick = { onOpenChat(r.session.id) }, onLongClick = { menuFor = r }, modifier = Modifier.animateItem().listSegment(i, g.rows.size))
                         }
                     }
                     if (ui.loadingMore) item("more") { LoadingRow() }
@@ -180,23 +190,23 @@ fun HomeScreen(
     }
 }
 
+/** A search well: pressed into the ground, the way every input is. */
 @Composable
 fun SearchField(value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, placeholder: String = "Search chats") {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.extraLarge, modifier = modifier.height(48.dp)) {
-        Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Sym(Ic.search, null, size = 20.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.size(10.dp))
-            Box(Modifier.weight(1f)) {
-                if (value.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                BasicTextField(
-                    value, onChange,
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            if (value.isNotEmpty()) IconButton(onClick = { onChange("") }, modifier = Modifier.size(32.dp)) { Sym(Ic.close, "Clear search", size = 18.dp) }
+    val c = Fp.colors
+    Row(modifier.height(44.dp).pressed(Radius.full, c.surfaceSunken).padding(start = 14.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Sym(Ic.search, null, size = 18.dp, tint = c.inkMuted)
+        Spacer(Modifier.size(10.dp))
+        Box(Modifier.weight(1f)) {
+            if (value.isEmpty()) Text(placeholder, style = FpType.body, color = c.inkMuted, maxLines = 1)
+            BasicTextField(
+                value, onChange,
+                singleLine = true,
+                textStyle = FpType.body.copy(color = c.ink),
+                cursorBrush = SolidColor(c.accent),
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
+        if (value.isNotEmpty()) FpIconButton(Ic.close, "Clear search", onClick = { onChange("") }, small = true)
     }
 }

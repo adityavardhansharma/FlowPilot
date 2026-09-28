@@ -39,6 +39,14 @@ import dev.flowpilot.app.ui.components.CodeBlock
 import dev.flowpilot.app.ui.components.DiffView
 import dev.flowpilot.app.ui.components.Ic
 import dev.flowpilot.app.ui.components.Sym
+import androidx.compose.foundation.layout.Box
+import dev.flowpilot.app.ui.components.FpButton
+import dev.flowpilot.app.ui.components.FpButtonVariant
+import dev.flowpilot.app.ui.components.OnSurface
+import dev.flowpilot.app.ui.theme.Fp
+import dev.flowpilot.app.ui.theme.FpType
+import dev.flowpilot.app.ui.theme.Radius
+import dev.flowpilot.app.ui.theme.raised
 import dev.flowpilot.core.api.Decision
 import dev.flowpilot.core.api.Form
 import dev.flowpilot.core.api.FormField
@@ -67,13 +75,15 @@ fun permissionTitle(p: PermissionRequest): String {
 @Composable
 fun PermissionCard(p: PermissionRequest, onDecide: (Decision) -> Unit, modifier: Modifier = Modifier, chatTitle: String? = null) {
     val scheme = MaterialTheme.colorScheme
-    Surface(color = scheme.tertiaryContainer.copy(alpha = 0.28f), shape = MaterialTheme.shapes.extraLarge, modifier = modifier.fillMaxWidth()) {
+    // The only amber object in the feed: it stays at the bottom until the person answers.
+    Box(modifier.fillMaxWidth().raised(Radius.lg, Fp.colors.amberSoft)) {
+        OnSurface(Fp.colors.onAmberSoft) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (chatTitle != null) Text(chatTitle, style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant)
+            if (chatTitle != null) Text(chatTitle, style = FpType.caption, color = Fp.colors.onAmberSoft)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Sym(Ic.lock, null, size = 20.dp, tint = scheme.tertiary)
+                Sym(Ic.lock, null, size = 20.dp, tint = Fp.colors.onAmberSoft)
                 Spacer(Modifier.width(10.dp))
-                Text(permissionTitle(p), style = MaterialTheme.typography.titleMedium)
+                Text(permissionTitle(p), style = FpType.title, color = Fp.colors.onAmberSoft)
             }
             if (!p.message.isNullOrBlank() && permissionTitle(p) != p.message) Text(p.message!!, style = MaterialTheme.typography.bodyMedium)
             val action = p.action.substringAfterLast('.')
@@ -83,10 +93,11 @@ fun PermissionCard(p: PermissionRequest, onDecide: (Decision) -> Unit, modifier:
                 p.resources.isNotEmpty() -> CodeBlock(p.resources.joinToString("\n"), if (action == "shell" || action == "bash") "sh" else "text", maxLines = 10)
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onDecide(Decision.Once) }) { Text("Allow once") }
-                FilledTonalButton(onClick = { onDecide(Decision.Always) }) { Text("Always allow") }
-                OutlinedButton(onClick = { onDecide(Decision.Reject) }) { Text("Deny") }
+                FpButton("Allow once", { onDecide(Decision.Once) }, variant = FpButtonVariant.Primary, small = true)
+                FpButton("Always allow", { onDecide(Decision.Always) }, small = true)
+                FpButton("Deny", { onDecide(Decision.Reject) }, variant = FpButtonVariant.Ghost, small = true)
             }
+        }
         }
     }
 }
@@ -101,27 +112,30 @@ fun FormCard(form: Form, onSubmit: (JsonObject) -> Unit, onDismiss: () -> Unit, 
     val uri = LocalUriHandler.current
     val fields = form.fields.filterNot { it.hidden }
     val ready = fields.all { f -> !f.required || answers[f.key].isAnswered() }
-    Surface(color = scheme.tertiaryContainer.copy(alpha = 0.28f), shape = MaterialTheme.shapes.extraLarge, modifier = modifier.fillMaxWidth()) {
+    // The only amber object in the feed: it stays at the bottom until the person answers.
+    Box(modifier.fillMaxWidth().raised(Radius.lg, Fp.colors.amberSoft)) {
+        OnSurface(Fp.colors.onAmberSoft) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (chatTitle != null) Text(chatTitle, style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant)
+            if (chatTitle != null) Text(chatTitle, style = FpType.caption, color = Fp.colors.onAmberSoft)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Sym(Ic.tool(dev.flowpilot.core.chat.ToolIcon.Question), null, size = 20.dp, tint = scheme.tertiary)
+                Sym(Ic.tool(dev.flowpilot.core.chat.ToolIcon.Question), null, size = 20.dp, tint = Fp.colors.onAmberSoft)
                 Spacer(Modifier.width(10.dp))
-                Text(form.title, style = MaterialTheme.typography.titleMedium)
+                Text(form.title, style = FpType.title, color = Fp.colors.onAmberSoft)
             }
             fields.forEach { f ->
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (f.type != "boolean") {
                         (f.title ?: f.key).let { Text(it + if (f.required) "" else " (optional)", style = MaterialTheme.typography.labelLarge) }
-                        f.description?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant) }
+                        f.description?.let { Text(it, style = FpType.caption, color = Fp.colors.onAmberSoft) }
                     }
                     FieldInput(f, answers[f.key], { answers[f.key] = it }, onOpen = { url -> catching { uri.openUri(url) } })
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onSubmit(typed(fields, answers.toMap())) }, enabled = ready) { Text("Submit") }
-                TextButton(onClick = onDismiss) { Text("Skip") }
+                FpButton("Submit", { onSubmit(typed(fields, answers.toMap())) }, variant = FpButtonVariant.Primary, small = true, enabled = ready)
+                FpButton("Skip", onDismiss, variant = FpButtonVariant.Ghost, small = true)
             }
+        }
         }
     }
 }

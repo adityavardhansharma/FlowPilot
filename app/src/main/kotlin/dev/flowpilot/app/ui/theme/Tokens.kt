@@ -1,102 +1,107 @@
-// Generated from docs/design-system/project/tokens.json. Edit the tokens, not this file.
+// The FlowPilot design system's tokens (Stone and Basalt). The reference is the design system artifact's
+// tokens.json: change a value there first, then here, under the same name.
 package dev.flowpilot.app.ui.theme
 
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 
-internal val FlowPilotLight = lightColorScheme(
-    primary = Color(0xFF216A5E),
-    onPrimary = Color(0xFFE3FFF7),
-    primaryContainer = Color(0xFFAAF0E0),
-    onPrimaryContainer = Color(0xFF0B5C51),
-    secondary = Color(0xFF4B645E),
-    onSecondary = Color(0xFFE3FFF7),
-    secondaryContainer = Color(0xFFCDE8E1),
-    onSecondaryContainer = Color(0xFF3E5751),
-    tertiary = Color(0xFF805200),
-    onTertiary = Color(0xFFFFF0E2),
-    tertiaryContainer = Color(0xFFFEA600),
-    onTertiaryContainer = Color(0xFF4E3000),
-    error = Color(0xFFA83836),
-    onError = Color(0xFFFFF7F6),
-    errorContainer = Color(0xFFFA746F),
-    onErrorContainer = Color(0xFF6E0A12),
-    surface = Color(0xFFF6FAF8),
-    onSurface = Color(0xFF2A3532),
-    surfaceVariant = Color(0xFFDAE5E1),
-    onSurfaceVariant = Color(0xFF57615E),
-    surfaceDim = Color(0xFFD1DDD8),
-    surfaceBright = Color(0xFFF6FAF8),
-    surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFEEF5F2),
-    surfaceContainer = Color(0xFFE7F0EC),
-    surfaceContainerHigh = Color(0xFFE1EAE6),
-    surfaceContainerHighest = Color(0xFFDAE5E1),
-    outline = Color(0xFF727D7A),
-    outlineVariant = Color(0xFFA9B4B1),
-    inverseSurface = Color(0xFF0A0F0E),
-    inverseOnSurface = Color(0xFF999E9C),
-    inversePrimary = Color(0xFFB8FFEF),
-    primaryFixed = Color(0xFFAAF0E0),
-    primaryFixedDim = Color(0xFF9CE2D2),
-    onPrimaryFixed = Color(0xFF00483E),
-    onPrimaryFixedVariant = Color(0xFF1C665A),
-    tertiaryFixed = Color(0xFFFEA600),
-    tertiaryFixedDim = Color(0xFFEB9A00),
-    onTertiaryFixed = Color(0xFF301C00),
-    scrim = Color(0xFF000000),
-    background = Color(0xFFF6FAF8),
-    onBackground = Color(0xFF2A3532),
-    surfaceTint = Color(0xFF216A5E),
+@Immutable
+data class FpColors(
+    /** Page background behind every surface. */
+    val ground: Color,
+    /** Default raised surface: cards, the composer, list rows. */
+    val surface: Color,
+    /** Above surfaces: sheets, menus, toasts, the selected segment. */
+    val surfaceRaised: Color,
+    /** Wells pressed into a surface: inputs, code, segmented tracks. */
+    val surfaceSunken: Color,
+    /** Decorative hairlines only. */
+    val line: Color,
+    /** Control outlines and dividers that must be seen: 3:1 on every surface. */
+    val lineStrong: Color,
+    val ink: Color,
+    val inkMuted: Color,
+    /** Disabled labels only. */
+    val inkFaint: Color,
+    /** Lagoon: send, primary buttons, the working state, links, focus. */
+    val accent: Color,
+    val onAccent: Color,
+    val accentSoft: Color,
+    val onAccentSoft: Color,
+    /** Needs you. Nothing else is ever amber. */
+    val amber: Color,
+    val onAmber: Color,
+    val amberSoft: Color,
+    val onAmberSoft: Color,
+    val danger: Color,
+    val onDanger: Color,
+    val dangerSoft: Color,
+    val onDangerSoft: Color,
+    /** Always paired with a check icon. */
+    val success: Color,
+    val scrim: Color,
+    val isDark: Boolean,
+) {
+    val focus: Color get() = accent
+}
+
+val Stone = FpColors(
+    ground = Color(0xFFEBEAE6), surface = Color(0xFFF6F5F2), surfaceRaised = Color(0xFFFDFCFA), surfaceSunken = Color(0xFFE2E0DB),
+    line = Color(0xFFD5D3CD), lineStrong = Color(0xFF838079),
+    ink = Color(0xFF1A1B1D), inkMuted = Color(0xFF5A5B5F), inkFaint = Color(0xFF7B7C80),
+    accent = Color(0xFF1D6B66), onAccent = Color(0xFFFFFFFF), accentSoft = Color(0xFFD3E6E2), onAccentSoft = Color(0xFF134A46),
+    amber = Color(0xFF8F5409), onAmber = Color(0xFFFFFFFF), amberSoft = Color(0xFFF3E2C3), onAmberSoft = Color(0xFF5A3405),
+    danger = Color(0xFFA8321C), onDanger = Color(0xFFFFFFFF), dangerSoft = Color(0xFFF5DBD4), onDangerSoft = Color(0xFF6E1F10),
+    success = Color(0xFF2F6B2B), scrim = Color(0x5C121315),
+    isDark = false,
 )
 
-internal val FlowPilotDark = darkColorScheme(
-    primary = Color(0xFF9DD1C5),
-    onPrimary = Color(0xFF12483F),
-    primaryContainer = Color(0xFF285B51),
-    onPrimaryContainer = Color(0xFFB9EEE1),
-    secondary = Color(0xFFB1CCC5),
-    onSecondary = Color(0xFF2C453F),
-    secondaryContainer = Color(0xFF27403B),
-    onSecondaryContainer = Color(0xFFAAC5BE),
-    tertiary = Color(0xFFFFB959),
-    onTertiary = Color(0xFF5B3900),
-    tertiaryContainer = Color(0xFFFEA600),
-    onTertiaryContainer = Color(0xFF4E3000),
-    error = Color(0xFFFA746F),
-    onError = Color(0xFF490006),
-    errorContainer = Color(0xFF871F21),
-    onErrorContainer = Color(0xFFFF9993),
-    surface = Color(0xFF0A0F0E),
-    onSurface = Color(0xFFDDE8E4),
-    surfaceVariant = Color(0xFF1E2825),
-    onSurfaceVariant = Color(0xFFA2ADAA),
-    surfaceDim = Color(0xFF0A0F0E),
-    surfaceBright = Color(0xFF242E2C),
-    surfaceContainerLowest = Color(0xFF000000),
-    surfaceContainerLow = Color(0xFF0E1513),
-    surfaceContainer = Color(0xFF131B19),
-    surfaceContainerHigh = Color(0xFF19211F),
-    surfaceContainerHighest = Color(0xFF1E2825),
-    outline = Color(0xFF6D7874),
-    outlineVariant = Color(0xFF404A47),
-    inverseSurface = Color(0xFFF6FAF8),
-    inverseOnSurface = Color(0xFF515654),
-    inversePrimary = Color(0xFF35685E),
-    primaryFixed = Color(0xFFB8EDE1),
-    primaryFixedDim = Color(0xFFAADFD3),
-    onPrimaryFixed = Color(0xFF10473E),
-    onPrimaryFixedVariant = Color(0xFF32645A),
-    tertiaryFixed = Color(0xFFFEA600),
-    tertiaryFixedDim = Color(0xFFEB9A00),
-    onTertiaryFixed = Color(0xFF301C00),
-    scrim = Color(0xFF000000),
-    background = Color(0xFF0A0F0E),
-    onBackground = Color(0xFFDDE8E4),
-    surfaceTint = Color(0xFF9DD1C5),
+val Basalt = FpColors(
+    ground = Color(0xFF121315), surface = Color(0xFF1A1B1E), surfaceRaised = Color(0xFF232428), surfaceSunken = Color(0xFF0D0E0F),
+    line = Color(0xFF2C2D31), lineStrong = Color(0xFF76777C),
+    ink = Color(0xFFECEBE7), inkMuted = Color(0xFFA4A4A8), inkFaint = Color(0xFF7D7E83),
+    accent = Color(0xFF6CC9BE), onAccent = Color(0xFF0B2522), accentSoft = Color(0xFF173230), onAccentSoft = Color(0xFFAEE6DE),
+    amber = Color(0xFFF0B45C), onAmber = Color(0xFF2A1A02), amberSoft = Color(0xFF34270F), onAmberSoft = Color(0xFFF7D7A4),
+    danger = Color(0xFFFF8B73), onDanger = Color(0xFF3A0B02), dangerSoft = Color(0xFF3A1C16), onDangerSoft = Color(0xFFFFC3B5),
+    success = Color(0xFF8CCB84), scrim = Color(0x99000000),
+    isDark = true,
 )
+
+/**
+ * Material components that are still in use (text fields, dialogs, the date of a snackbar host) read these roles.
+ * They map onto the system's surfaces so nothing Material paints its own tonal tint: `surfaceTint` is transparent.
+ */
+internal fun FpColors.toMaterial(): ColorScheme =
+    if (isDark) darkColorScheme(
+        primary = accent, onPrimary = onAccent, primaryContainer = accentSoft, onPrimaryContainer = onAccentSoft,
+        inversePrimary = if (isDark) Stone.accent else Basalt.accent,
+        secondary = accent, onSecondary = onAccent, secondaryContainer = accentSoft, onSecondaryContainer = onAccentSoft,
+        tertiary = amber, onTertiary = onAmber, tertiaryContainer = amberSoft, onTertiaryContainer = onAmberSoft,
+        background = ground, onBackground = ink, surface = ground, onSurface = ink,
+        surfaceVariant = surfaceSunken, onSurfaceVariant = inkMuted, surfaceTint = Color.Transparent,
+        inverseSurface = ink, inverseOnSurface = ground,
+        error = danger, onError = onDanger, errorContainer = dangerSoft, onErrorContainer = onDangerSoft,
+        outline = lineStrong, outlineVariant = line, scrim = Color.Black,
+        surfaceBright = surfaceRaised, surfaceDim = surfaceSunken,
+        surfaceContainerLowest = surfaceRaised, surfaceContainerLow = surface, surfaceContainer = surface,
+        surfaceContainerHigh = surface, surfaceContainerHighest = surfaceSunken,
+    ) else lightColorScheme(
+        primary = accent, onPrimary = onAccent, primaryContainer = accentSoft, onPrimaryContainer = onAccentSoft,
+        inversePrimary = if (isDark) Stone.accent else Basalt.accent,
+        secondary = accent, onSecondary = onAccent, secondaryContainer = accentSoft, onSecondaryContainer = onAccentSoft,
+        tertiary = amber, onTertiary = onAmber, tertiaryContainer = amberSoft, onTertiaryContainer = onAmberSoft,
+        background = ground, onBackground = ink, surface = ground, onSurface = ink,
+        surfaceVariant = surfaceSunken, onSurfaceVariant = inkMuted, surfaceTint = Color.Transparent,
+        inverseSurface = ink, inverseOnSurface = ground,
+        error = danger, onError = onDanger, errorContainer = dangerSoft, onErrorContainer = onDangerSoft,
+        outline = lineStrong, outlineVariant = line, scrim = Color.Black,
+        surfaceBright = surfaceRaised, surfaceDim = surfaceSunken,
+        surfaceContainerLowest = surfaceRaised, surfaceContainerLow = surface, surfaceContainer = surface,
+        surfaceContainerHigh = surface, surfaceContainerHighest = surfaceSunken,
+    )
 
 @Immutable
 data class FlowPilotColors(
@@ -114,32 +119,33 @@ data class FlowPilotColors(
     val terminalPrompt: Color,
 )
 
+/** Code sits in a sunken well; syntax colours stay muted so the accent keeps its meaning. */
 internal val CodeColorsLight = FlowPilotColors(
-    diffAddBg = Color(0xFFD4F3E8),
-    diffAddInk = Color(0xFF0B5C4F),
-    diffRemoveBg = Color(0xFFFFE2DE),
-    diffRemoveInk = Color(0xFF9A2A2A),
-    codeBg = Color(0xFFF0F5F3),
-    codeInk = Color(0xFF1F2A27),
-    codeKeyword = Color(0xFF7A3FB0),
-    codeString = Color(0xFF1D6B3A),
-    codeNumber = Color(0xFF9B4A00),
-    codeComment = Color(0xFF5D6966),
-    codeFunction = Color(0xFF155F8A),
-    terminalPrompt = Color(0xFF216A5E),
+    diffAddBg = Color(0xFFDCEAD6),
+    diffAddInk = Color(0xFF24541F),
+    diffRemoveBg = Color(0xFFF5DBD4),
+    diffRemoveInk = Color(0xFF6E1F10),
+    codeBg = Stone.surfaceSunken,
+    codeInk = Stone.ink,
+    codeKeyword = Color(0xFF6B3F8F),
+    codeString = Color(0xFF2F6B2B),
+    codeNumber = Color(0xFF8F5409),
+    codeComment = Color(0xFF6A6B6F),
+    codeFunction = Color(0xFF1D5C8A),
+    terminalPrompt = Stone.accent,
 )
 
 internal val CodeColorsDark = FlowPilotColors(
-    diffAddBg = Color(0xFF123A31),
-    diffAddInk = Color(0xFF9EE6D2),
-    diffRemoveBg = Color(0xFF43191A),
-    diffRemoveInk = Color(0xFFFFB1AB),
-    codeBg = Color(0xFF0C1311),
-    codeInk = Color(0xFFD9E5E1),
-    codeKeyword = Color(0xFFD6B4FF),
-    codeString = Color(0xFF9FE0B1),
-    codeNumber = Color(0xFFFFC08A),
-    codeComment = Color(0xFF8B9894),
-    codeFunction = Color(0xFF9CCFFF),
-    terminalPrompt = Color(0xFF7FDCC5),
+    diffAddBg = Color(0xFF1A2C18),
+    diffAddInk = Color(0xFFA9DCA2),
+    diffRemoveBg = Color(0xFF3A1C16),
+    diffRemoveInk = Color(0xFFFFC3B5),
+    codeBg = Basalt.surfaceSunken,
+    codeInk = Basalt.ink,
+    codeKeyword = Color(0xFFCDB2EE),
+    codeString = Color(0xFFA9DCA2),
+    codeNumber = Color(0xFFF0C48A),
+    codeComment = Color(0xFF8C8D92),
+    codeFunction = Color(0xFF9CC7EE),
+    terminalPrompt = Basalt.accent,
 )
