@@ -185,7 +185,7 @@ fun ServerChip(name: String, state: LinkState, onClick: () -> Unit, modifier: Mo
             } else if (trouble) {
                 Sym(Ic.lock, null, size = 18.dp)
             } else {
-                BreathingDot(c.accent)
+                StillDot(c.success)
             }
             Spacer(Modifier.width(8.dp))
             Text(
@@ -237,7 +237,7 @@ fun EmptyState(
         Text(title, style = FpType.titleLg, textAlign = TextAlign.Center, color = Fp.colors.ink)
         if (body != null) {
             Spacer(Modifier.height(8.dp))
-            Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            Text(body, style = FpType.body, color = Fp.colors.inkMuted, textAlign = TextAlign.Center)
         }
         if (action != null && onAction != null) {
             Spacer(Modifier.height(24.dp))
@@ -278,23 +278,27 @@ fun CenteredLoading(slowHint: Boolean = true) {
         FpSpinner(Modifier.size(56.dp))
         if (slow && slowHint) {
             Spacer(Modifier.height(16.dp))
-            Text("Still loading. Your computer may be busy.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Still loading. Your computer may be busy.", style = FpType.body, color = Fp.colors.inkMuted)
         }
     }
 }
 
-/** Skeleton row at the real ThreadRow size, pulsing gently. */
+/**
+ * Skeleton row at the real ThreadRow size, pulsing between full and 55% opacity at duration-shimmer. Its pebble
+ * and bars are wells, the same as what they stand in for.
+ */
 @Composable
-fun SkeletonRow() {
+fun SkeletonRow(widths: Pair<Float, Float> = 0.62f to 0.38f) {
     val t = rememberInfiniteTransition(label = "skeleton")
-    val a by t.animateFloat(1f, 0.6f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "alpha")
+    val a by t.animateFloat(1f, 0.55f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "alpha")
+    val well = Fp.colors.surfaceSunken
     Row(Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 16.dp).alpha(a), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh))
+        Box(Modifier.size(40.dp).clip(PebbleShape).background(well))
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
-            Box(Modifier.fillMaxWidth(0.6f).height(14.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh))
+            Box(Modifier.fillMaxWidth(widths.first).height(13.dp).clip(CircleShape).background(well))
             Spacer(Modifier.height(8.dp))
-            Box(Modifier.fillMaxWidth(0.4f).height(12.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh))
+            Box(Modifier.fillMaxWidth(widths.second).height(10.dp).clip(CircleShape).background(well))
         }
     }
 }

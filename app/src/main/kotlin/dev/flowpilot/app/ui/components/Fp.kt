@@ -1,6 +1,26 @@
 package dev.flowpilot.app.ui.components
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
@@ -89,7 +109,8 @@ fun FpButton(
         FpButtonVariant.Danger -> c.dangerSoft to c.onDangerSoft
         FpButtonVariant.Ghost -> Color.Transparent to c.ink
     }
-    val shape = if (small) Radius.full else Radius.md
+    // Every button is a pill: its radius is half its height at any size, so corners never look clipped.
+    val shape = Radius.full
     Row(
         modifier
             .heightIn(min = if (small) 36.dp else 44.dp)
@@ -130,17 +151,27 @@ enum class SendState { Send, Stop, Disabled }
 @Composable
 fun SendKey(state: SendState, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val c = Fp.colors
-    val fill by animateColorAsState(if (state == SendState.Stop) c.ink else c.accent, Motion.quick(), label = "send")
+    val fill by animateColorAsState(if (state == SendState.Stop) c.ink else c.accent, Motion.color(), label = "send")
+    val ink by animateColorAsState(
+        when (state) { SendState.Stop -> c.ground; SendState.Send -> c.onAccent; SendState.Disabled -> c.inkFaint },
+        Motion.color(), label = "sendInk",
+    )
     Box(
         modifier.size(44.dp).pressable(Radius.full, fill, onClick, enabled = state != SendState.Disabled, label = if (state == SendState.Stop) "Stop" else "Send"),
         contentAlignment = Alignment.Center,
     ) {
-        Sym(
-            if (state == SendState.Stop) Ic.stop else Ic.arrowUp,
-            if (state == SendState.Stop) "Stop" else "Send",
-            size = 22.dp,
-            tint = when (state) { SendState.Stop -> c.ground; SendState.Send -> c.onAccent; SendState.Disabled -> c.inkFaint },
-        )
+        // The glyph swaps in place: the old one shrinks out fast, the new one grows in on spring-snappy.
+        AnimatedContent(
+            state == SendState.Stop,
+            transitionSpec = {
+                (fadeIn(Motion.fadeIn()) + scaleIn(Motion.snappy(), initialScale = 0.6f))
+                    .togetherWith(fadeOut(Motion.fadeOut()) + scaleOut(Motion.press(), targetScale = 0.6f))
+                    .using(null)
+            },
+            label = "sendGlyph",
+        ) { stop ->
+            Sym(if (stop) Ic.stop else Ic.arrowUp, if (stop) "Stop" else "Send", size = 22.dp, tint = ink)
+        }
     }
 }
 
@@ -156,14 +187,26 @@ fun FpChip(
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val c = Fp.colors
-    val base = when {
-        selected -> Modifier.clip(Radius.full).background(c.accentSoft).selectable(selected = true, onClick = onClick, role = Role.Checkbox)
-        well -> Modifier.pressed(Radius.full, c.surfaceSunken).selectable(selected = false, onClick = onClick)
-        else -> Modifier.pressable(Radius.full, c.surface, onClick)
-    }
-    val ink = if (selected) c.onAccentSoft else c.ink
-    Row(modifier.height(34.dp).then(base).padding(start = 12.dp, end = if (trailing != null) 6.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    val fill by animateColorAsState(if (selected) c.accentSoft else c.surface, Motion.color(), label = "chipFill")
+    val ink by animateColorAsState(if (selected) c.onAccentSoft else c.ink, Motion.color(), label = "chipInk")
+    val base = if (well) Modifier.pressed(Radius.full, c.surfaceSunken).selectable(selected = false, onClick = onClick)
+    else Modifier.pressable(Radius.full, fill, onClick, role = Role.Checkbox, flat = selected)
+    Row(
+        modifier.height(34.dp).then(base).semantics { this.selected = selected }
+            .padding(start = 12.dp, end = if (trailing != null) 6.dp else 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         if (icon != null) { Sym(icon, null, size = 16.dp, tint = ink); Spacer(Modifier.width(6.dp)) }
+        else if (!well) {
+            // Selecting grows a check in from zero width, so the label slides over instead of jumping.
+            AnimatedVisibility(
+                selected,
+                enter = expandHorizontally(Motion.snappy(), expandFrom = Alignment.Start) + fadeIn(Motion.fadeIn()),
+                exit = shrinkHorizontally(Motion.snappy(), shrinkTowards = Alignment.Start) + fadeOut(Motion.fadeOut()),
+            ) {
+                Row { Sym(Ic.check, null, size = 16.dp, tint = ink); Spacer(Modifier.width(4.dp)) }
+            }
+        }
         Text(text, style = FpType.label, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
         trailing?.invoke(this)
     }
@@ -179,7 +222,7 @@ fun <T> FpSegmented(segments: List<Segment<T>>, selected: T, onSelect: (T) -> Un
     val index = segments.indexOfFirst { it.value == selected }.coerceAtLeast(0)
     BoxWithConstraints(modifier.height(44.dp).pressed(Radius.full, c.surfaceSunken).padding(4.dp)) {
         val each = maxWidth / segments.size
-        val x by animateDpAsState(each * index, Motion.settle(), label = "segment")
+        val x by animateDpAsState(each * index, Motion.snappy(), label = "segment")
         Box(Modifier.offset(x = x).width(each).fillMaxHeight().raised(Radius.full, c.surfaceRaised))
         Row(Modifier.fillMaxWidth().fillMaxHeight()) {
             segments.forEach { s ->
@@ -190,7 +233,7 @@ fun <T> FpSegmented(segments: List<Segment<T>>, selected: T, onSelect: (T) -> Un
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center,
                 ) {
-                    val ink = if (on) c.ink else c.inkMuted
+                    val ink by animateColorAsState(if (on) c.ink else c.inkMuted, Motion.color(), label = "segInk")
                     if (s.icon != null) { Sym(s.icon, null, size = 16.dp, tint = ink); Spacer(Modifier.width(6.dp)) }
                     Text(s.label, style = FpType.label, color = ink, maxLines = 1)
                 }
@@ -203,14 +246,25 @@ fun <T> FpSegmented(segments: List<Segment<T>>, selected: T, onSelect: (T) -> Un
 @Composable
 fun FpSwitch(checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier) {
     val c = Fp.colors
-    val x by animateDpAsState(if (checked) 20.dp else 0.dp, Motion.settle(), label = "switch")
-    val track by animateColorAsState(if (checked) c.accent else c.surfaceSunken, Motion.settle(), label = "track")
+    val haptic = LocalHapticFeedback.current
+    val source = remember { MutableInteractionSource() }
+    val down by source.collectIsPressedAsState()
+    val x by animateDpAsState(if (checked) 20.dp else 0.dp, Motion.snappy(), label = "switch")
+    val stretch by animateDpAsState(if (down) 4.dp else 0.dp, Motion.press(), label = "stretch")
+    val track by animateColorAsState(if (checked) c.accent else c.surfaceSunken, Motion.color(), label = "track")
+    // Off, the knob must still read against a dark well, so in Basalt it takes a lighter stone.
+    val knob by animateColorAsState(
+        when { checked -> c.onAccent; c.isDark -> androidx.compose.ui.graphics.lerp(c.surfaceRaised, c.ink, 0.42f); else -> c.surfaceRaised },
+        Motion.color(), label = "knob",
+    )
     Box(
         modifier.size(52.dp, 32.dp).pressed(Radius.full, track)
-            .toggleable(value = checked, role = Role.Switch, onValueChange = onChange)
+            .toggleable(value = checked, interactionSource = source, indication = null, role = Role.Switch) {
+                haptic.performHapticFeedback(HapticFeedbackType.SegmentTick); onChange(it)
+            }
             .padding(4.dp),
     ) {
-        Box(Modifier.offset(x = x).size(24.dp).raised(Radius.full, if (checked) c.onAccent else c.surfaceRaised))
+        Box(Modifier.offset(x = x - if (checked) stretch else 0.dp).size(24.dp + stretch, 24.dp).raised(Radius.full, knob))
     }
 }
 
@@ -218,6 +272,33 @@ fun FpSwitch(checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier =
 @Composable
 fun FpCard(modifier: Modifier = Modifier, color: Color = Fp.colors.surface, shape: Shape = Radius.lg, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier.fillMaxWidth().raised(shape, color), content = content)
+}
+
+/**
+ * A count on a tab or row: amber for things that need the person, accent otherwise. It pops on spring-lively each
+ * time the count changes, and caps at 99+.
+ */
+@Composable
+fun FpBadge(count: Int, modifier: Modifier = Modifier, amber: Boolean = true) {
+    if (count <= 0) return
+    val c = Fp.colors
+    val pop = remember { Animatable(1f) }
+    var last by remember { mutableIntStateOf(count) }
+    LaunchedEffect(count) {
+        if (count != last) { last = count; pop.snapTo(1.25f); pop.animateTo(1f, Motion.lively()) }
+    }
+    Box(
+        modifier.graphicsLayer { scaleX = pop.value; scaleY = pop.value }
+            .heightIn(min = 16.dp).widthIn(min = 16.dp)
+            .clip(Radius.full).background(if (amber) c.amber else c.accent).padding(horizontal = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            if (count > 99) "99+" else "$count",
+            style = FpType.caption.copy(fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight(650)),
+            color = if (amber) c.onAmber else c.onAccent,
+        )
+    }
 }
 
 /** A keycap for a typed shortcut: `/`, `@`, `!`. */
@@ -284,10 +365,12 @@ fun Pebble(name: String, size: Dp = 40.dp, modifier: Modifier = Modifier, muted:
     val tint = when {
         muted -> c.inkFaint
         h % 3 == 0 -> c.accent
+        c.isDark -> c.ink
         else -> c.inkMuted
     }
     Box(
-        modifier.size(size).rotate((h % 4) * 90f).pressed(PebbleShape, c.surfaceSunken),
+        modifier.size(size).rotate((h % 4) * 90f).pressed(PebbleShape, c.surfaceSunken)
+            .then(if (c.isDark) Modifier.border(1.dp, c.line, PebbleShape) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -296,6 +379,14 @@ fun Pebble(name: String, size: Dp = 40.dp, modifier: Modifier = Modifier, muted:
             color = tint,
             modifier = Modifier.rotate(-(h % 4) * 90f),
         )
+    }
+}
+
+/** A still status dot with a soft halo: a healthy connection. Only work breathes, so this one never moves. */
+@Composable
+fun StillDot(color: Color, modifier: Modifier = Modifier) {
+    Box(modifier.size(14.dp).clip(Radius.full).background(color.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(8.dp).clip(Radius.full).background(color))
     }
 }
 
