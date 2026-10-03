@@ -1,6 +1,6 @@
 package dev.flowpilot.app.ui.theme
 
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -66,8 +66,8 @@ fun Modifier.pressed(shape: Shape, color: Color): Modifier = composed {
 }
 
 /**
- * A raised control that sinks while held: `raised` at rest, `pressed` and 1dp lower under the finger. No ripple;
- * the press is the feedback. [haptic] ticks on release for toggles.
+ * A raised control that sinks while held: `raised` at rest, `pressed`, 1dp lower and 3% smaller under the finger,
+ * all on spring-press. No ripple; the press is the feedback. [haptic] ticks on release for toggles.
  */
 fun Modifier.pressable(
     shape: Shape,
@@ -81,9 +81,16 @@ fun Modifier.pressable(
 ): Modifier = composed {
     val source = remember { MutableInteractionSource() }
     val down by source.collectIsPressedAsState()
-    val nudge by animateDpAsState(if (down && enabled) 1.dp else 0.dp, Motion.quick(), label = "press")
+    // One spring drives the whole press: 1dp down and 3% smaller while held, back on release with the finger's
+    // speed. Interrupting it mid-way (a quick double tap) bends instead of restarting.
+    val press by animateFloatAsState(if (down && enabled) 1f else 0f, Motion.press(), label = "press")
     val feedback = LocalHapticFeedback.current
-    val base = this.graphicsLayer { translationY = nudge.toPx() }
+    val base = this.graphicsLayer {
+        translationY = press * 1.dp.toPx()
+        val scale = 1f - (if (flat) 0.04f else 0.03f) * press
+        scaleX = scale
+        scaleY = scale
+    }
     val skin = when {
         !enabled -> Modifier.pressed(shape, Fp.colors.surfaceSunken)
         down -> Modifier.pressed(shape, color)

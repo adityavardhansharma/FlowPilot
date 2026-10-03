@@ -81,4 +81,15 @@ class MiscTest {
         h = h.reduce(e("session.execution.succeeded", """{"sessionID":"s1"}"""))
         assertEquals(RowStatus.Unread, h.row(h.sessions["s1"]!!, emptySet(), null).status)
     }
+
+    @Test fun needsYouIncludesChatsOutsideTheLoadedPages() {
+        val loaded = Session(id = "s1", projectID = "p1", title = "Loaded", location = Location("/code/app"))
+        val old = Session(id = "s9", projectID = "p1", title = "Old chat with an approval", location = Location("/code/app"))
+        val quiet = Session(id = "s8", projectID = "p1", title = "Old chat, nothing waiting", location = Location("/code/app"))
+        val h = HomeState().withPage(listOf(loaded), null, replace = true).copy(needsYou = mapOf("s9" to setOf("per_1")))
+        val groups = h.groups(emptySet(), null, waiting = listOf(old, quiet))
+        assertEquals("Needs you", groups.first().label)
+        assertEquals(listOf("s9"), groups.first().rows.map { it.session.id })
+        assertEquals(listOf("s1"), groups.drop(1).flatMap { it.rows }.map { it.session.id })
+    }
 }

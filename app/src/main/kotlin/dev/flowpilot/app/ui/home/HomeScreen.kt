@@ -84,7 +84,9 @@ fun HomeScreen(
 
     LaunchedEffect(ui.message) { ui.message?.let { showMessage(it); vm.consumeMessage() } }
 
-    val groups = remember(ui.state, pinned, ui.filter, scratch) { ui.state.groups(pinned, scratch, ui.filter) }
+    // Chats with an approval waiting that aren't on the loaded pages still join "Needs you".
+    val waiting by vm.conn.pending.sessions.collectAsStateWithLifecycle()
+    val groups = remember(ui.state, pinned, ui.filter, scratch, waiting) { ui.state.groups(pinned, scratch, ui.filter, waiting = waiting.values) }
     val query = ui.query.trim()
     val searchRows = remember(query, ui.state, ui.searchHits, pinned, scratch) {
         if (query.isEmpty()) emptyList() else {

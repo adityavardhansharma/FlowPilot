@@ -2,32 +2,12 @@
 
 package dev.flowpilot.app.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.flowpilot.app.ui.theme.Fp
-import dev.flowpilot.app.ui.theme.FpType
-import dev.flowpilot.app.ui.theme.Radius
-import dev.flowpilot.app.ui.theme.pressable
-import dev.flowpilot.app.ui.theme.raised
 
 import android.net.Uri
 import androidx.compose.animation.fadeIn
@@ -36,14 +16,9 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.ShortNavigationBar
-import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -52,11 +27,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -73,10 +48,12 @@ import dev.flowpilot.app.data.ServerConnection
 import dev.flowpilot.app.ui.chat.ChatScreen
 import dev.flowpilot.app.ui.components.CenteredLoading
 import dev.flowpilot.app.ui.components.Ic
-import dev.flowpilot.app.ui.components.Sym
+import dev.flowpilot.app.ui.components.DockTab
+import dev.flowpilot.app.ui.components.FpDock
+import dev.flowpilot.app.ui.theme.FadeThrough
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import dev.flowpilot.app.ui.home.HomeScreen
 import dev.flowpilot.app.ui.home.HomeViewModel
-import dev.flowpilot.app.ui.inbox.InboxScreen
 import dev.flowpilot.app.ui.newchat.NewChatSheet
 import dev.flowpilot.app.ui.pairing.PairingScreen
 import dev.flowpilot.app.ui.projects.ProjectsScreen
@@ -201,8 +178,12 @@ fun AppNav() {
     }
 }
 
-private enum class Tab(val label: String, val icon: Int) { Chats("Chats", Ic.chat), Projects("Projects", Ic.folder), Inbox("Inbox", Ic.inbox) }
+private enum class Tab(val label: String, val icon: Int) { Chats("Chats", Ic.chat), Projects("Projects", Ic.folder) }
 
+/**
+ * Two tabs: Chats and Projects. What used to be the Inbox lives at the top of Chats as "Needs you", and the dock's
+ * Chats tab carries its count, so approvals are one tap away without a third place to check.
+ */
 @Composable
 private fun MainTabs(conn: ServerConnection, nav: NavHostController) {
     val g = graph
@@ -215,53 +196,31 @@ private fun MainTabs(conn: ServerConnection, nav: NavHostController) {
     val show: (String) -> Unit = { msg -> scope.launch { snackbar.showSnackbar(msg) } }
     val openChat: (String) -> Unit = { nav.navigate(Routes.chat(it)) }
     val startIn: (String?) -> Unit = { dir -> newChat = false; nav.navigate(Routes.newChat(dir)) }
+    // Each tab keeps its scroll position and state while the other is showing.
+    val saved = rememberSaveableStateHolder()
 
     Scaffold(
         bottomBar = {
-            // A floating dock: the tabs as one raised pill, and New chat as the accent key beside it.
-            Row(
-                Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 12.dp, top = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(Modifier.weight(1f).height(56.dp).raised(Radius.full, Fp.colors.surfaceRaised, lift = true).padding(4.dp)) {
-                    Tab.entries.forEach { t ->
-                        val on = tab == t
-                        Row(
-                            Modifier.weight(1f).fillMaxHeight().clip(Radius.full)
-                                .background(if (on) Fp.colors.accentSoft else Color.Transparent)
-                                .selectable(selected = on, role = Role.Tab) { tab = t },
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                        ) {
-                            val ink = if (on) Fp.colors.onAccentSoft else Fp.colors.inkMuted
-                            Box {
-                                Sym(t.icon, null, size = 20.dp, tint = ink)
-                                if (t == Tab.Inbox && asks.isNotEmpty()) {
-                                    Box(Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-4).dp).size(16.dp).clip(Radius.full).background(Fp.colors.amber), contentAlignment = Alignment.Center) {
-                                        Text("${asks.size.coerceAtMost(9)}", style = FpType.caption.copy(fontSize = 10.sp, lineHeight = 12.sp), color = Fp.colors.onAmber)
-                                    }
-                                }
-                            }
-                            if (on) { Spacer(Modifier.width(6.dp)); Text(t.label, style = FpType.label, color = ink, maxLines = 1) }
-                        }
-                    }
-                }
-                if (tab != Tab.Inbox) {
-                    Spacer(Modifier.width(12.dp))
-                    Box(
-                        Modifier.size(56.dp).pressable(Radius.full, Fp.colors.accent, { newChat = true }, label = "New chat"),
-                        contentAlignment = Alignment.Center,
-                    ) { Sym(Ic.add, "New chat", size = 24.dp, tint = Fp.colors.onAccent) }
-                }
-            }
+            FpDock(
+                tabs = Tab.entries.map { t -> DockTab(t, t.label, t.icon, badge = if (t == Tab.Chats) asks.distinctBy { it.id }.size else 0) },
+                selected = tab,
+                onSelect = { tab = it },
+                actionIcon = Ic.add,
+                actionLabel = "New chat",
+                onAction = { newChat = true },
+                modifier = Modifier.navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 12.dp, top = 8.dp),
+            )
         },
         snackbarHost = { SnackbarHost(snackbar) { dev.flowpilot.app.ui.components.FpToast(it) } },
         containerColor = Fp.colors.ground,
     ) { padding ->
-        when (tab) {
-            Tab.Chats -> HomeScreen(home, padding, onOpenChat = openChat, onNewChat = { newChat = true }, onSettings = { nav.navigate(Routes.SETTINGS) }, showMessage = show)
-            Tab.Projects -> ProjectsScreen(home, padding, onStartIn = { startIn(it) }, onNew = { newChat = true })
-            Tab.Inbox -> InboxScreen(conn, padding, onOpenChat = openChat, showMessage = show)
+        FadeThrough(tab, Modifier.fillMaxSize(), label = "tabs") { t ->
+            saved.SaveableStateProvider(t.name) {
+                when (t) {
+                    Tab.Chats -> HomeScreen(home, padding, onOpenChat = openChat, onNewChat = { newChat = true }, onSettings = { nav.navigate(Routes.SETTINGS) }, showMessage = show)
+                    Tab.Projects -> ProjectsScreen(home, padding, onStartIn = { startIn(it) }, onNew = { newChat = true })
+                }
+            }
         }
     }
     if (newChat) {
