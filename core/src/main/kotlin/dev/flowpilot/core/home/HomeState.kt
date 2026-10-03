@@ -62,8 +62,20 @@ data class HomeState(
         return ThreadRowModel(s, project, status, supporting, status == RowStatus.Working, s.id in pinned)
     }
 
-    fun groups(pinned: Set<String>, scratchDir: String?, filter: HomeFilter = HomeFilter.All, now: Long = System.currentTimeMillis()): List<HomeGroup> {
-        val rows = sessions.values
+    /**
+     * The list, grouped: "Needs you" first, then pinned, then by day. [waiting] are chats known only because
+     * something in them waits on the person (an approval in a chat older than the loaded pages); they join
+     * "Needs you" so nothing that needs an answer is out of sight.
+     */
+    fun groups(
+        pinned: Set<String>,
+        scratchDir: String?,
+        filter: HomeFilter = HomeFilter.All,
+        now: Long = System.currentTimeMillis(),
+        waiting: Collection<Session> = emptyList(),
+    ): List<HomeGroup> {
+        val extra = waiting.filter { it.id !in sessions && needsYou[it.id].orEmpty().isNotEmpty() }
+        val rows = (sessions.values + extra)
             .filter { it.parentID == null && it.time.archived == null }
             .map { row(it, pinned, scratchDir) }
             .filter { filter.matches(it) }
