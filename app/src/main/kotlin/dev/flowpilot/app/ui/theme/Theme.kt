@@ -6,6 +6,7 @@ import android.provider.Settings
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.CircleShape
@@ -123,25 +124,61 @@ private val FlowPilotShapes = Shapes(
 
 // ---------------------------------------------------------------- motion
 
-/** Quiet and physical: things settle, nothing bounces. */
+/**
+ * Motion is physics, not timing. Everything that moves is a spring, so it can be interrupted and keeps its velocity
+ * when its target changes; only opacity and colour use durations. The pairs are the design system's spring tokens
+ * (damping ratio, stiffness). Exits are always faster than entrances.
+ */
 object Motion {
+    /** True when the person turned animations off: every spec snaps. Set by [FlowPilotTheme]. */
+    @Volatile var reduced: Boolean = false
+
+    /** spring-press, 174ms, no overshoot: a control sinking under the finger and coming back. */
+    fun <T> press(): FiniteAnimationSpec<T> = s(1f, 1500f)
+    /** spring-snappy, 155ms, 0.4%: selection indicators, thumbs, chevrons, a check growing in. */
+    fun <T> snappy(): FiniteAnimationSpec<T> = s(0.86f, 900f)
+    /** spring-settle, 241ms: menus opening, heights changing, rows arriving. The default. */
+    fun <T> settle(): FiniteAnimationSpec<T> = s(0.92f, 520f)
+    /** spring-glide, 343ms: sheets, the keyboard tray, screens. */
+    fun <T> glide(): FiniteAnimationSpec<T> = s(0.95f, 300f)
+    /** spring-lively, 266ms, 3.6%: things that arrive to be noticed (a badge, a status pill). Sparingly. */
+    fun <T> lively(): FiniteAnimationSpec<T> = s(0.72f, 600f)
+    /** spring-drift, 545ms: slow, unhurried travel (jump to latest). */
+    fun <T> drift(): FiniteAnimationSpec<T> = s(1f, 150f)
+
+    /** Older names, kept so every caller reads the same tokens. */
+    fun <T> quick(): FiniteAnimationSpec<T> = snappy()
+    fun <T> sheet(): FiniteAnimationSpec<T> = glide()
+
+    const val EXIT = 90
+    const val FADE = 150
+    const val COLOR = 180
+    const val CROSSFADE = 210
+    const val STAGGER = 16
+
     val settleEasing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)
     val exitEasing = CubicBezierEasing(0.4f, 0f, 1f, 1f)
-    const val QUICK = 120
-    const val SETTLE = 220
-    const val SHEET = 320
-    fun <T> quick(): FiniteAnimationSpec<T> = tween(QUICK, easing = settleEasing)
-    fun <T> settle(): FiniteAnimationSpec<T> = tween(SETTLE, easing = settleEasing)
-    fun <T> sheet(): FiniteAnimationSpec<T> = tween(SHEET, easing = settleEasing)
+
+    /** duration-fade on ease-out: something appearing. */
+    fun <T> fadeIn(delay: Int = 0): FiniteAnimationSpec<T> = t(FADE, delay, settleEasing)
+    /** duration-exit on ease-in: something leaving, always quicker than it came. */
+    fun <T> fadeOut(): FiniteAnimationSpec<T> = t(EXIT, 0, exitEasing)
+    /** duration-color: fills and ink crossfading between states. */
+    fun <T> color(): FiniteAnimationSpec<T> = t(COLOR, 0, settleEasing)
+
+    private fun <T> s(damping: Float, stiffness: Float): FiniteAnimationSpec<T> =
+        if (reduced) snap() else spring(dampingRatio = damping, stiffness = stiffness)
+    private fun <T> t(ms: Int, delay: Int, easing: androidx.compose.animation.core.Easing): FiniteAnimationSpec<T> =
+        if (reduced) snap() else tween(ms, delay, easing)
 }
 
-private object SettleMotion : MotionScheme {
+private object SpringMotion : MotionScheme {
     override fun <T> defaultSpatialSpec(): FiniteAnimationSpec<T> = Motion.settle()
-    override fun <T> fastSpatialSpec(): FiniteAnimationSpec<T> = Motion.quick()
-    override fun <T> slowSpatialSpec(): FiniteAnimationSpec<T> = Motion.sheet()
-    override fun <T> defaultEffectsSpec(): FiniteAnimationSpec<T> = Motion.settle()
-    override fun <T> fastEffectsSpec(): FiniteAnimationSpec<T> = Motion.quick()
-    override fun <T> slowEffectsSpec(): FiniteAnimationSpec<T> = Motion.sheet()
+    override fun <T> fastSpatialSpec(): FiniteAnimationSpec<T> = Motion.snappy()
+    override fun <T> slowSpatialSpec(): FiniteAnimationSpec<T> = Motion.glide()
+    override fun <T> defaultEffectsSpec(): FiniteAnimationSpec<T> = Motion.color()
+    override fun <T> fastEffectsSpec(): FiniteAnimationSpec<T> = Motion.fadeOut()
+    override fun <T> slowEffectsSpec(): FiniteAnimationSpec<T> = Motion.fadeIn()
 }
 
 /** Every spec snaps, for people who turned animations off. */
@@ -177,13 +214,14 @@ fun FlowPilotTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable (
     val reduceMotion = remember(ctx) {
         Settings.Global.getFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
     }
+    Motion.reduced = reduceMotion
     CompositionLocalProvider(
         LocalFpColors provides colors,
         LocalFlowPilotColors provides if (dark) CodeColorsDark else CodeColorsLight,
     ) {
         MaterialExpressiveTheme(
             colorScheme = colors.toMaterial(),
-            motionScheme = if (reduceMotion) ReducedMotion else SettleMotion,
+            motionScheme = if (reduceMotion) ReducedMotion else SpringMotion,
             shapes = FlowPilotShapes,
             typography = FlowPilotTypography,
         ) {
