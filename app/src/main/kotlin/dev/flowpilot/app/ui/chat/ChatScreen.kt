@@ -6,13 +6,23 @@ import dev.flowpilot.app.ui.components.FpSpinner
 
 import dev.flowpilot.core.sync.catching
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyListState
+import dev.flowpilot.app.ui.components.FpMenu
+import dev.flowpilot.app.ui.components.FpTextDialog
+import dev.flowpilot.app.ui.components.FpTopBar
+import dev.flowpilot.app.ui.components.SheetAction
+import dev.flowpilot.app.ui.theme.Motion
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,22 +41,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -164,28 +164,32 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
         }
     }
 
+    // The feed is reversed, so older messages lie "forward": anything there has scrolled up under the bar.
+    val scrolled by remember { derivedStateOf { list.canScrollForward } }
+    BackHandler(menu) { menu = false }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(ui.title, style = FpType.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val sub = ui.projectName.ifEmpty { ui.directory?.substringAfterLast('/') ?: "" }
-                        if (sub.isNotEmpty()) Text(sub, style = FpType.caption, color = Fp.colors.inkMuted, maxLines = 1)
-                    }
-                },
-                navigationIcon = { FpIconButton(Ic.back, "Back", onClick = onBack, modifier = Modifier.padding(start = 4.dp)) },
-                actions = {
-                    if (!ui.isNew) Box {
-                        FpIconButton(Ic.more, "More", onClick = { menu = true })
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { Sym(Ic.editSquare) }, onClick = { menu = false; renaming = true })
-                            DropdownMenuItem(text = { Text("Refresh") }, leadingIcon = { Sym(Ic.refresh) }, onClick = { menu = false; vm.load() })
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Fp.colors.ground, scrolledContainerColor = Fp.colors.ground),
-            )
+            FpTopBar(scrolled, Modifier.statusBarsPadding()) {
+                FpIconButton(Ic.back, "Back", onClick = onBack)
+                Spacer(Modifier.width(4.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(ui.title, style = FpType.title, color = Fp.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val sub = ui.projectName.ifEmpty { ui.directory?.substringAfterLast('/') ?: "" }
+                    if (sub.isNotEmpty()) Text(sub, style = FpType.caption, color = Fp.colors.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (!ui.isNew) Box {
+                    FpIconButton(Ic.more, "More", onClick = { menu = !menu })
+                    FpMenu(
+                        expanded = menu,
+                        onDismiss = { menu = false },
+                        items = listOf(
+                            SheetAction(Ic.editSquare, "Rename") { renaming = true },
+                            SheetAction(Ic.refresh, "Refresh") { vm.load() },
+                        ),
+                    )
+                }
+            }
         },
         snackbarHost = { SnackbarHost(snackbar) { dev.flowpilot.app.ui.components.FpToast(it) } },
         contentWindowInsets = WindowInsets(0),
@@ -195,7 +199,8 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
             if (ui.syncing || (ui.loadError != null && chat.entries.isNotEmpty())) {
                 Text(
                     if (ui.loadError != null) "Showing saved conversation. ${ui.loadError}" else "Catching up…",
-                    style = MaterialTheme.typography.labelMedium,
+                    style = FpType.caption,
+                    color = Fp.colors.inkMuted,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 )
             }
@@ -212,19 +217,15 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         items(rows, key = { it.key }, contentType = { it::class.simpleName }) { row ->
-                            Box(Modifier.animateItem(fadeInSpec = MaterialTheme.motionScheme.defaultEffectsSpec(), placementSpec = MaterialTheme.motionScheme.defaultSpatialSpec(), fadeOutSpec = MaterialTheme.motionScheme.fastEffectsSpec())) {
+                            Box(Modifier.animateItem(fadeInSpec = Motion.fadeIn(), placementSpec = Motion.settle(), fadeOutSpec = Motion.fadeOut())) {
                                 ChatRow(row, ui, vm)
                             }
                         }
                     }
                 }
-                Column(Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    AnimatedVisibility(chat.running || chat.needsYou > 0, enter = fadeIn() + slideInVertically { it / 2 }, exit = fadeOut() + slideOutVertically { it / 2 }) {
-                        WorkingPill(chat.runStartedAt, chat.needsYou)
-                    }
-                }
+                StatusPill(chat.running, chat.runStartedAt, chat.needsYou, Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp))
                 JumpToLatest(!atBottom, unseen, Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 12.dp)) {
-                    scope.launch { list.animateScrollToItem(0) }
+                    scope.launch { list.driftToLatest() }
                 }
             }
             QueuedChips(chat.queued, onEdit = vm::editQueued, onCancel = vm::cancelQueued)
@@ -274,14 +275,7 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
         )
     }
     if (renaming) {
-        var text by remember { mutableStateOf(ui.title) }
-        AlertDialog(
-            onDismissRequest = { renaming = false },
-            title = { Text("Rename chat") },
-            text = { OutlinedTextField(text, { text = it }, singleLine = true, modifier = Modifier.fillMaxWidth()) },
-            confirmButton = { TextButton(onClick = { vm.rename(text.trim()); renaming = false }, enabled = text.isNotBlank()) { Text("Rename") } },
-            dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } },
-        )
+        FpTextDialog("Rename chat", ui.title, "Rename", onDismiss = { renaming = false }) { vm.rename(it); renaming = false }
     }
 }
 
@@ -308,17 +302,23 @@ private fun ChatRow(row: Row0, ui: ChatUi, vm: ChatViewModel) {
             val secs = ((row.info.at - now) / 1000).coerceAtLeast(0)
             Text(
                 "Model error: ${row.info.error.message.ifBlank { row.info.error.type }}. Retrying" + (if (secs > 0) " in ${secs}s" else "…") + " (attempt ${row.info.attempt})",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = FpType.body,
+                color = Fp.colors.inkMuted,
             )
         }
         Row0.Older -> if (ui.loadingOlder) LoadingRow() else Spacer(Modifier.height(1.dp))
     }
 }
 
+/** Back to the newest message: it grows in on spring-settle and travels there on spring-drift, unhurried. */
 @Composable
 private fun JumpToLatest(visible: Boolean, unseen: Int, modifier: Modifier, onClick: () -> Unit) {
-    AnimatedVisibility(visible, enter = scaleIn() + fadeIn(), exit = scaleOut() + fadeOut(), modifier = modifier) {
+    AnimatedVisibility(
+        visible,
+        enter = scaleIn(Motion.settle(), initialScale = 0.8f) + fadeIn(Motion.fadeIn()),
+        exit = scaleOut(Motion.press(), targetScale = 0.8f) + fadeOut(Motion.fadeOut()),
+        modifier = modifier,
+    ) {
         Row(
             Modifier.height(40.dp).pressable(Radius.full, Fp.colors.surfaceRaised, onClick, label = "Jump to latest").padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -329,6 +329,18 @@ private fun JumpToLatest(visible: Boolean, unseen: Int, modifier: Modifier, onCl
     }
 }
 
+/**
+ * Scrolls a reversed feed to its newest item on spring-drift. A long way back first jumps to a few screens out, so
+ * the drift covers a distance the eye can follow, then lands exactly on the newest row.
+ */
+private suspend fun LazyListState.driftToLatest() {
+    if (firstVisibleItemIndex > 8) scrollToItem(8)
+    val sizes = layoutInfo.visibleItemsInfo.map { it.size }
+    val average = if (sizes.isEmpty()) 0f else sizes.average().toFloat()
+    animateScrollBy(-(firstVisibleItemIndex * average + firstVisibleItemScrollOffset), Motion.drift())
+    if (firstVisibleItemIndex != 0 || firstVisibleItemScrollOffset != 0) animateScrollToItem(0)
+}
+
 @Composable
 private fun WaitingRow() {
     var show by remember { mutableStateOf(false) }
@@ -336,28 +348,49 @@ private fun WaitingRow() {
     if (show) Row(verticalAlignment = Alignment.CenterVertically) {
         FpSpinner(Modifier.size(24.dp))
         Spacer(Modifier.width(10.dp))
-        Text("Starting…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Starting…", style = FpType.body, color = Fp.colors.inkMuted)
     } else Spacer(Modifier.height(24.dp))
 }
 
-/** "Working · 0:42" with a breathing dot, or amber "Needs you · 1 approval" while something waits on the person. */
+/**
+ * "Working · 0:42" in accent-soft with a breathing dot, or "Needs you · 1 approval" in amber-soft with a lock. It
+ * arrives on spring-lively; between states it morphs in place: the width follows the words on spring-settle and the
+ * fill and contents crossfade. It keeps its last words while it leaves.
+ */
 @Composable
-private fun WorkingPill(startedAt: Long?, needsYou: Int) {
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(1000) } }
-    val c = Fp.colors
-    val amber = needsYou > 0
-    val ink = if (amber) c.onAmberSoft else c.onAccentSoft
-    Row(
-        Modifier.height(32.dp).raised(Radius.full, if (amber) c.amberSoft else c.accentSoft, lift = true)
-            .semantics { liveRegion = LiveRegionMode.Polite }.padding(start = 10.dp, end = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun StatusPill(running: Boolean, startedAt: Long?, needsYou: Int, modifier: Modifier = Modifier) {
+    val show = running || needsYou > 0
+    var amber by remember { mutableStateOf(needsYou > 0) }
+    var asks by remember { mutableIntStateOf(needsYou) }
+    if (show) { amber = needsYou > 0; if (needsYou > 0) asks = needsYou }
+    AnimatedVisibility(
+        show,
+        modifier = modifier,
+        enter = scaleIn(Motion.lively(), initialScale = 0.7f) + fadeIn(Motion.fadeIn()),
+        exit = scaleOut(Motion.press(), targetScale = 0.85f) + fadeOut(Motion.fadeOut()),
     ) {
-        if (amber) Sym(Ic.lock, null, size = 16.dp, tint = ink) else BreathingDot(ink)
-        Spacer(Modifier.width(8.dp))
-        val text = if (amber) "Needs you · " + if (needsYou == 1) "1 approval" else "$needsYou approvals"
-        else "Working" + (startedAt?.let { " · " + Format.duration((now - it).coerceAtLeast(0)) } ?: "")
-        Text(text, style = FpType.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(500)), color = ink)
+        val c = Fp.colors
+        val fill by animateColorAsState(if (amber) c.amberSoft else c.accentSoft, Motion.color(), label = "pillFill")
+        val ink by animateColorAsState(if (amber) c.onAmberSoft else c.onAccentSoft, Motion.color(), label = "pillInk")
+        Row(
+            Modifier.height(32.dp).raised(Radius.full, fill, lift = true).animateContentSize(Motion.settle())
+                .semantics { liveRegion = LiveRegionMode.Polite }.padding(start = 10.dp, end = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Crossfade(amber, Modifier.size(16.dp), animationSpec = Motion.color(), label = "pillIcon") { a ->
+                Box(Modifier.size(16.dp), contentAlignment = Alignment.Center) { if (a) Sym(Ic.lock, null, size = 16.dp, tint = ink) else BreathingDot(ink) }
+            }
+            Spacer(Modifier.width(8.dp))
+            Crossfade(amber, animationSpec = Motion.color(), label = "pillText") { a ->
+                val style = FpType.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight(500))
+                if (a) Text("Needs you · " + if (asks == 1) "1 approval" else "$asks approvals", style = style, color = ink, maxLines = 1)
+                else {
+                    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+                    LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(1000) } }
+                    Text("Working" + (startedAt?.let { " · " + Format.duration((now - it).coerceAtLeast(0)) } ?: ""), style = style, color = ink, maxLines = 1)
+                }
+            }
+        }
     }
 }
 

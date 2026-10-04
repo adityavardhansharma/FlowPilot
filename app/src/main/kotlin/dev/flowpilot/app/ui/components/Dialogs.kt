@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import dev.flowpilot.app.ui.theme.Fp
 import dev.flowpilot.app.ui.theme.FpType
+import dev.flowpilot.app.ui.theme.Motion
 import dev.flowpilot.app.ui.theme.Radius
 import dev.flowpilot.app.ui.theme.pressable
 import dev.flowpilot.app.ui.theme.pressed
@@ -161,3 +162,50 @@ fun FpActionsSheet(title: String, actions: List<SheetAction>, onDismiss: () -> U
         }
     }
 }
+
+/**
+ * A small menu hanging from the top-end of its parent (an overflow button). It grows from that corner on
+ * spring-settle and leaves faster than it came. It never takes focus, so opening it can't close the keyboard;
+ * a tap outside or picking an item closes it.
+ */
+@Composable
+fun FpMenu(expanded: Boolean, onDismiss: () -> Unit, items: List<SheetAction>, offset: androidx.compose.ui.unit.DpOffset = androidx.compose.ui.unit.DpOffset(0.dp, 44.dp)) {
+    val c = Fp.colors
+    val state = remember { androidx.compose.animation.core.MutableTransitionState(false) }
+    state.targetState = expanded
+    if (!state.currentState && !state.targetState) return
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    // The card sits inside a margin that leaves its shadow room to fall; the offset puts the card, not the margin,
+    // under the anchor's corner.
+    val origin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
+    androidx.compose.ui.window.Popup(
+        alignment = Alignment.TopEnd,
+        offset = with(density) { androidx.compose.ui.unit.IntOffset((offset.x + MenuMargin).roundToPx(), (offset.y - MenuMargin).roundToPx()) },
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.PopupProperties(focusable = false, dismissOnClickOutside = true),
+    ) {
+        androidx.compose.animation.AnimatedVisibility(
+            state,
+            enter = androidx.compose.animation.fadeIn(Motion.fadeIn()) + androidx.compose.animation.scaleIn(Motion.settle(), initialScale = 0.9f, transformOrigin = origin),
+            exit = androidx.compose.animation.fadeOut(Motion.fadeOut()) + androidx.compose.animation.scaleOut(Motion.press(), targetScale = 0.95f, transformOrigin = origin),
+        ) {
+            // radius-lg outside, a 6dp inset, so the rows' radius-md presses sit concentric (20 − 6 = 14).
+            Column(Modifier.padding(MenuMargin).widthIn(min = 200.dp, max = 280.dp).raised(Radius.lg, c.surfaceRaised, lift = true).padding(6.dp)) {
+                items.forEach { a ->
+                    Row(
+                        Modifier.fillMaxWidth().height(48.dp)
+                            .pressable(Radius.md, androidx.compose.ui.graphics.Color.Transparent, { onDismiss(); a.onClick() }, flat = true)
+                            .padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Sym(a.icon, null, size = 20.dp, tint = if (a.danger) c.danger else c.inkMuted)
+                        Spacer(Modifier.width(12.dp))
+                        Text(a.label, style = FpType.body, color = if (a.danger) c.danger else c.ink, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private val MenuMargin = 12.dp

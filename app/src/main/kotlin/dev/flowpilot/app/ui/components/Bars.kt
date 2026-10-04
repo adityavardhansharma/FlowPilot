@@ -77,13 +77,13 @@ fun LazyListState.titleGone(key: Any): State<Boolean> = remember(this, key) {
  * release. [onLongClick] gets the system's long-press haptic.
  */
 @OptIn(ExperimentalFoundationApi::class)
-fun Modifier.rowPress(onClick: () -> Unit, onLongClick: (() -> Unit)? = null, longClickLabel: String? = null): Modifier = composed {
+fun Modifier.rowPress(onClick: () -> Unit, onLongClick: (() -> Unit)? = null, longClickLabel: String? = null, enabled: Boolean = true): Modifier = composed {
     val c = Fp.colors
     val source = remember { MutableInteractionSource() }
     val down by source.collectIsPressedAsState()
     val tint by animateColorAsState(if (down) c.ink.copy(alpha = if (c.isDark) 0.08f else 0.06f) else Color.Transparent, Motion.fadeOut(), label = "rowPress")
     background(tint).combinedClickable(
-        interactionSource = source, indication = null,
+        interactionSource = source, indication = null, enabled = enabled,
         onClick = onClick, onLongClick = onLongClick, onLongClickLabel = longClickLabel,
     )
 }
