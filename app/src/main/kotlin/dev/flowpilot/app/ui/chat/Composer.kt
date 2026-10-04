@@ -2,12 +2,36 @@
 
 package dev.flowpilot.app.ui.chat
 
-import androidx.compose.animation.AnimatedContent
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.unit.Dp
+import dev.flowpilot.app.ui.components.rowPress
+import dev.flowpilot.app.ui.theme.Space
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.roundToInt
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,19 +46,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SplitButtonDefaults
-import androidx.compose.material3.SplitButtonLayout
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -67,9 +81,6 @@ import dev.flowpilot.app.ui.theme.pressable
 import dev.flowpilot.app.ui.theme.pressed
 import dev.flowpilot.app.ui.theme.raised
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.IconButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -107,10 +118,15 @@ fun QueuedChips(queued: List<QueuedMessage>, onEdit: (String) -> Unit, onCancel:
 /**
  * The docked composer: attachment chips and suggestions on top, then the text, then a toolbar with +, one
  * mode-and-model chip and send. The chip reads "Build · Model" and opens a single sheet for both. While the agent
- * works, send becomes a split button (send now steers, the arrow queues) beside stop.
+ * works with something typed, stop and "Later" (queue it) join the send key, which then steers.
  *
  * Shortcuts, as in OpenCode's own clients: `/` at the start lists slash commands, `@` lists files to add as
- * context, and `!` in an empty box switches to running a shell command. The + menu offers the same, plus photos.
+ * context, and `!` in an empty box switches to running a shell command. The + tray offers the same, plus photos.
+ *
+ * The keyboard is sacred. "+" hides the keyboard but keeps focus in the field, and the attach tray takes the
+ * keyboard's place at its last measured height, so the composer doesn't move. Tapping the field brings the keyboard
+ * back over the tray. The composer owns the space under it (keyboard, tray or navigation bar, whichever is
+ * tallest), so callers must not add IME or navigation-bar padding of their own.
  */
 @Composable
 fun Composer(
@@ -187,104 +203,211 @@ fun Composer(
         set(TextFieldValue(field.text.substring(0, at) + pad + token + field.text.substring(at), TextRange(at + pad.length + token.length)))
     }
 
-    // The one object that is always there floats on shadow-lift with radius-xl.
-    Box(modifier.fillMaxWidth().raised(Radius.xl, scheme.surface, lift = true)) {
-        Column(Modifier.padding(top = 4.dp, bottom = 8.dp)) {
-            when {
-                commandMatches.isNotEmpty() -> Suggestions(commandMatches.map { Suggestion(it.name, "/" + it.name, it.description, Ic.slash) }, ::pickCommand)
-                mentionQuery != null && fileMatches.isNotEmpty() -> Suggestions(fileMatches.map { Suggestion(it, it.substringAfterLast('/'), it.substringBeforeLast('/', "").ifEmpty { null }, Ic.file) }, ::pickFile)
+    val keyboard = LocalSoftwareKeyboardController.current
+    val density = LocalDensity.current
+    val ime = WindowInsets.ime
+    val nav = WindowInsets.navigationBars
+    var tray by rememberSaveable { mutableStateOf(false) }
+    // How the tray last closed: for the keyboard (which then covers it) or on its own (it glides away).
+    var toKeyboard by remember { mutableStateOf(false) }
+    // The tallest the keyboard has been, so the tray can stand in for it exactly. 280dp until it has been seen.
+    var keyboardPx by rememberSaveable { mutableIntStateOf(0) }
+    val trayPx = if (keyboardPx > 0) keyboardPx else with(density) { (280.dp + DefaultNavBar).roundToPx() }
+    val trayHeight = remember { Animatable(0f) }
+    LaunchedEffect(ime, density) {
+        var last = 0
+        snapshotFlow { ime.getBottom(density) }.collect { now ->
+            if (now > keyboardPx) keyboardPx = now
+            // The keyboard coming back (a tap in the field) closes the tray under it.
+            if (tray && now > last) { toKeyboard = true; tray = false }
+            last = now
+        }
+    }
+    LaunchedEffect(tray) {
+        when {
+            // Opened from the keyboard: the tray is already its height and the keyboard slides away off it.
+            tray && ime.getBottom(density) > 0 -> trayHeight.snapTo(trayPx.toFloat())
+            tray -> trayHeight.animateTo(trayPx.toFloat(), Motion.glide())
+            toKeyboard -> {
+                // Hold until the keyboard covers the tray, then let go behind it.
+                withTimeoutOrNull(600) { snapshotFlow { ime.getBottom(density) }.first { it >= trayHeight.value - 1 } }
+                trayHeight.animateTo(0f, Motion.glide())
+                toKeyboard = false
             }
-            if (attachments.isNotEmpty()) AttachmentRow(attachments, onRemoveAttachment)
-            Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 10.dp).heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (shell) {
-                    // Amber: the command runs on the person's computer.
-                    Row(
-                        Modifier.clip(Radius.sm).background(scheme.amberSoft).clickable(onClickLabel = "Leave shell mode") { onShell(false) }
-                            .padding(start = 6.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Sym(Ic.terminal, null, size = 14.dp, tint = scheme.onAmberSoft)
-                        Spacer(Modifier.width(4.dp))
-                        Text("shell", style = CodeStyle.copy(fontSize = 12.sp), color = scheme.onAmberSoft)
-                        Sym(Ic.close, "Leave shell mode", size = 14.dp, tint = scheme.onAmberSoft)
-                    }
-                    Spacer(Modifier.width(8.dp))
+            else -> trayHeight.animateTo(0f, Motion.glide())
+        }
+    }
+    // Read through derived state, so the tray's spring relays out the composer without recomposing it each frame.
+    val trayShown by remember { derivedStateOf { tray || trayHeight.value > 0f } }
+    BackHandler(tray) { tray = false }
+    fun closeTrayForKeyboard() {
+        if (tray) { toKeyboard = true; tray = false }
+        catching { focus.requestFocus() }
+        keyboard?.show()
+    }
+    val fieldTouches = remember { MutableInteractionSource() }
+    LaunchedEffect(fieldTouches) {
+        fieldTouches.interactions.collect { if (it is PressInteraction.Release && tray) closeTrayForKeyboard() }
+    }
+
+    Column(modifier.fillMaxWidth()) {
+        // The one object that is always there floats on shadow-lift with radius-xl.
+        Box(Modifier.padding(horizontal = 8.dp).fillMaxWidth().raised(Radius.xl, scheme.surface, lift = true)) {
+            Column(Modifier.animateContentSize(Motion.settle()).padding(top = 4.dp, bottom = 8.dp)) {
+                when {
+                    commandMatches.isNotEmpty() -> Suggestions(commandMatches.map { Suggestion(it.name, "/" + it.name, it.description, Ic.slash) }, ::pickCommand)
+                    mentionQuery != null && fileMatches.isNotEmpty() -> Suggestions(fileMatches.map { Suggestion(it, it.substringAfterLast('/'), it.substringBeforeLast('/', "").ifEmpty { null }, Ic.file) }, ::pickFile)
                 }
-                Box(Modifier.weight(1f)) {
-                    if (field.text.isEmpty()) {
-                        Text(
-                            when {
-                                shell -> "Run a command" + (folder?.let { " in ${it.trimEnd('/').substringAfterLast('/')}" } ?: "")
-                                running -> "Steer the agent, or queue a follow-up"
-                                else -> "Ask the agent, / for commands, @ for files"
+                if (attachments.isNotEmpty()) AttachmentRow(attachments, onRemoveAttachment)
+                Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, top = 10.dp, bottom = 10.dp).heightIn(min = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (shell) {
+                        // Amber: the command runs on the person's computer.
+                        Row(
+                            Modifier.clip(Radius.sm).background(scheme.amberSoft).rowPress({ onShell(false) }, longClickLabel = null)
+                                .padding(start = 6.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Sym(Ic.terminal, null, size = 14.dp, tint = scheme.onAmberSoft)
+                            Spacer(Modifier.width(4.dp))
+                            Text("shell", style = CodeStyle.copy(fontSize = 12.sp), color = scheme.onAmberSoft)
+                            Sym(Ic.close, "Leave shell mode", size = 14.dp, tint = scheme.onAmberSoft)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Box(Modifier.weight(1f)) {
+                        if (field.text.isEmpty()) {
+                            Text(
+                                when {
+                                    shell -> "Run a command" + (folder?.let { " in ${it.trimEnd('/').substringAfterLast('/')}" } ?: "")
+                                    running -> "Steer, or queue a follow-up"
+                                    else -> "Ask the agent to do something"
+                                },
+                                style = FpType.bodyLg, color = scheme.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        BasicTextField(
+                            value = field,
+                            onValueChange = { v ->
+                                // "!" typed into an empty box switches to shell mode, like OpenCode's terminal app.
+                                if (!shell && field.text.isEmpty() && v.text == "!") { onShell(true); return@BasicTextField }
+                                set(v)
                             },
-                            style = FpType.bodyLg, color = scheme.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            enabled = enabled,
+                            maxLines = 6,
+                            textStyle = (if (shell) CodeStyle.copy(fontSize = 15.sp, lineHeight = 22.sp) else FpType.bodyLg).copy(color = scheme.ink),
+                            cursorBrush = SolidColor(scheme.accent),
+                            keyboardOptions = if (shell) KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false)
+                            else KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                            interactionSource = fieldTouches,
+                            modifier = Modifier.fillMaxWidth().focusRequester(focus),
                         )
                     }
-                    BasicTextField(
-                        value = field,
-                        onValueChange = { v ->
-                            // "!" typed into an empty box switches to shell mode, like OpenCode's terminal app.
-                            if (!shell && field.text.isEmpty() && v.text == "!") { onShell(true); return@BasicTextField }
-                            set(v)
-                        },
+                }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    PlusKey(
+                        open = tray,
                         enabled = enabled,
-                        maxLines = 6,
-                        textStyle = (if (shell) CodeStyle.copy(fontSize = 15.sp, lineHeight = 22.sp) else FpType.bodyLg).copy(color = scheme.ink),
-                        cursorBrush = SolidColor(scheme.accent),
-                        keyboardOptions = if (shell) KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false)
-                        else KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                        modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                        onClick = {
+                            if (tray) closeTrayForKeyboard()
+                            else {
+                                // Hide the keyboard but leave focus (and the cursor) in the field.
+                                toKeyboard = false
+                                tray = true
+                                keyboard?.hide()
+                            }
+                        },
                     )
+                    Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                        ModeModelChip(if (agents.isEmpty()) null else agentLabel(agent, agents), agent, modelLabel, onPicker)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    val sendable = field.text.isNotBlank() || (!shell && attachments.any { it is Attachment.Image })
+                    SendControl(hasText = sendable, running = running, enabled = enabled, onSend = onSend, onStop = onStop)
                 }
             }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                PlusMenu(
-                    onPhotos = onPickImages,
-                    onFile = { insertAtCursor("@"); catching { focus.requestFocus() } },
-                    onCommand = {
-                        if (shell) onShell(false)
-                        if (!field.text.startsWith("/")) set(TextFieldValue("/" + field.text, TextRange(1)))
-                        catching { focus.requestFocus() }
-                    },
-                    onShell = { onShell(true); catching { focus.requestFocus() } },
-                    enabled = enabled,
-                )
-                Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                    ModeModelChip(if (agents.isEmpty()) null else agentLabel(agent, agents), agent, modelLabel, onPicker)
-                }
-                Spacer(Modifier.width(8.dp))
-                val sendable = field.text.isNotBlank() || (!shell && attachments.any { it is Attachment.Image })
-                SendControl(hasText = sendable, running = running, enabled = enabled, onSend = onSend, onStop = onStop)
-            }
+        }
+        // Below the card: the keyboard, the tray or the navigation bar, whichever is tallest. Read while laying out, so
+        // the keyboard's slide moves the composer without recomposing it.
+        Box(
+            Modifier.fillMaxWidth().clipToBounds().layout { m, c ->
+                val h = maxOf(ime.getBottom(this), trayHeight.value.roundToInt(), nav.getBottom(this)) + Space.s2.roundToPx()
+                val p = m.measure(c.copy(minHeight = 0, maxHeight = maxOf(trayPx, h)))
+                layout(c.maxWidth, h) { p.place(0, 0) }
+            },
+        ) {
+            if (trayShown) AttachTray(
+                height = with(density) { trayPx.toDp() },
+                bottomInset = with(density) { nav.getBottom(this).toDp() },
+                onPhotos = { tray = false; onPickImages() },
+                onFile = { insertAtCursor("@"); closeTrayForKeyboard() },
+                onCommand = {
+                    if (shell) onShell(false)
+                    if (!field.text.startsWith("/")) set(TextFieldValue("/" + field.text, TextRange(1)))
+                    closeTrayForKeyboard()
+                },
+                onShell = { onShell(true); closeTrayForKeyboard() },
+            )
         }
     }
 }
 
-/** The + button: photos, and the three typed shortcuts for people who don't know them yet. */
+/** The tray's height before the keyboard has ever shown includes a typical gesture bar. */
+private val DefaultNavBar = 24.dp
+
+/** "+", turning 45° into "×" on spring-snappy while the tray is open. */
 @Composable
-private fun PlusMenu(onPhotos: () -> Unit, onFile: () -> Unit, onCommand: () -> Unit, onShell: () -> Unit, enabled: Boolean) {
-    var open by remember { mutableStateOf(false) }
+private fun PlusKey(open: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val turn by animateFloatAsState(if (open) 45f else 0f, Motion.snappy(), label = "plus")
+    Box(
+        Modifier.size(40.dp).pressable(Radius.full, Color.Transparent, onClick, enabled = enabled, label = if (open) "Close attachments" else "Add photos, files, commands", flat = true),
+        contentAlignment = Alignment.Center,
+    ) {
+        Sym(Ic.add, null, size = 22.dp, tint = if (enabled) Fp.colors.ink else Fp.colors.inkFaint, modifier = Modifier.graphicsLayer { rotationZ = turn })
+    }
+}
+
+/**
+ * Where the keyboard was: a large Photos tile for the system photo picker, and File, Command and Shell tiles that
+ * each show the key that does the same thing while typing. Picking a typed one brings the keyboard back.
+ */
+@Composable
+private fun AttachTray(height: Dp, bottomInset: Dp, onPhotos: () -> Unit, onFile: () -> Unit, onCommand: () -> Unit, onShell: () -> Unit) {
     val c = Fp.colors
-    Box {
-        FpIconButton(Ic.add, "Add photos, files, commands", onClick = { open = true }, enabled = enabled)
-        DropdownMenu(
-            expanded = open, onDismissRequest = { open = false },
-            shape = Radius.lg, containerColor = c.surfaceRaised, shadowElevation = 12.dp, tonalElevation = 0.dp,
+    Row(
+        Modifier.fillMaxWidth().height(height).padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = bottomInset + 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(
+            Modifier.weight(1f).fillMaxHeight().pressable(Radius.lg, c.surface, onPhotos, label = "Photos").padding(16.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            @Composable
-            fun item(icon: Int, title: String, body: String, shortcut: String?, action: () -> Unit) = DropdownMenuItem(
-                text = { Column { Text(title, style = FpType.label, color = c.ink); Text(body, style = FpType.caption, color = c.inkMuted) } },
-                leadingIcon = { Sym(icon, tint = c.ink) },
-                trailingIcon = if (shortcut != null) { { Keycap(shortcut) } } else null,
-                onClick = { open = false; action() },
-                modifier = Modifier.padding(horizontal = 6.dp).clip(Radius.md),
-            )
-            item(Ic.image, "Photos", "Attach images for the model to see", null, onPhotos)
-            item(Ic.file, "File as context", "Add a file from the project", "@", onFile)
-            item(Ic.slash, "Command", "Run a slash command", "/", onCommand)
-            item(Ic.terminal, "Shell command", "Run it on your computer", "!", onShell)
+            Box(Modifier.size(48.dp).pressed(Radius.full, c.accentSoft), contentAlignment = Alignment.Center) {
+                Sym(Ic.image, null, size = 24.dp, tint = c.onAccentSoft)
+            }
+            Column {
+                Text("Photos", style = FpType.title, color = c.ink)
+                Text("For the model to see", style = FpType.caption, color = c.inkMuted)
+            }
         }
+        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            TrayTile(Ic.file, "File", "@", onFile, Modifier.weight(1f))
+            TrayTile(Ic.slash, "Command", "/", onCommand, Modifier.weight(1f))
+            TrayTile(Ic.terminal, "Shell", "!", onShell, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun TrayTile(icon: Int, label: String, key: String, onClick: () -> Unit, modifier: Modifier) {
+    val c = Fp.colors
+    Row(
+        modifier.fillMaxWidth().pressable(Radius.lg, c.surface, onClick, label = label).padding(start = 14.dp, end = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Sym(icon, null, size = 20.dp, tint = c.inkMuted)
+        Spacer(Modifier.width(10.dp))
+        Text(label, style = FpType.label, color = c.ink, maxLines = 1, modifier = Modifier.weight(1f))
+        Keycap(key)
     }
 }
 
@@ -297,7 +420,7 @@ private fun Suggestions(items: List<Suggestion>, onPick: (String) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
         items.forEach { s ->
             Row(
-                Modifier.fillMaxWidth().clip(Radius.md).clickable { onPick(s.value) }.padding(horizontal = 10.dp, vertical = 9.dp),
+                Modifier.fillMaxWidth().clip(Radius.md).rowPress({ onPick(s.value) }).padding(horizontal = 10.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Sym(s.icon, null, size = 18.dp, tint = c.inkMuted)
@@ -309,7 +432,7 @@ private fun Suggestions(items: List<Suggestion>, onPick: (String) -> Unit) {
                 }
             }
         }
-        HorizontalDivider(Modifier.padding(top = 4.dp), color = c.line)
+        Box(Modifier.padding(top = 4.dp).fillMaxWidth().height(1.dp).background(c.line))
     }
 }
 
@@ -360,7 +483,11 @@ private fun ModeModelChip(mode: String?, agent: String?, model: String, onClick:
 @Composable
 private fun SendControl(hasText: Boolean, running: Boolean, enabled: Boolean, onSend: (Boolean) -> Unit, onStop: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        AnimatedVisibility(running && hasText, enter = fadeIn(Motion.settle()) + scaleIn(Motion.settle()), exit = fadeOut(Motion.quick()) + scaleOut(Motion.quick())) {
+        AnimatedVisibility(
+            running && hasText,
+            enter = expandHorizontally(Motion.settle(), expandFrom = Alignment.End) + fadeIn(Motion.fadeIn()),
+            exit = shrinkHorizontally(Motion.settle(), shrinkTowards = Alignment.End) + fadeOut(Motion.fadeOut()),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 FpIconButton(Ic.stop, "Stop", onClick = onStop)
                 FpChip("Later", onClick = { onSend(true) }, icon = Ic.schedule)

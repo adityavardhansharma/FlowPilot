@@ -33,8 +33,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -195,7 +193,8 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
         contentWindowInsets = WindowInsets(0),
         containerColor = Fp.colors.ground,
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
+        // No IME padding here: the composer owns the space under itself (keyboard, attach tray or navigation bar).
+        Column(Modifier.fillMaxSize().padding(padding)) {
             if (ui.syncing || (ui.loadError != null && chat.entries.isNotEmpty())) {
                 Text(
                     if (ui.loadError != null) "Showing saved conversation. ${ui.loadError}" else "Catching up…",
@@ -255,7 +254,7 @@ fun ChatScreen(conn: ServerConnection, sessionID: String?, directory: String?, o
                     }.onFailure { scope.launch { snackbar.showSnackbar("No photo picker on this phone.") } }
                 },
                 folder = ui.directory,
-                modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp).navigationBarsPadding(),
+                modifier = Modifier.padding(top = 8.dp),
             )
         }
     }
