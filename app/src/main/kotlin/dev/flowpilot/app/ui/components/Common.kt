@@ -288,11 +288,11 @@ fun CenteredLoading(slowHint: Boolean = true) {
  * and bars are wells, the same as what they stand in for.
  */
 @Composable
-fun SkeletonRow(widths: Pair<Float, Float> = 0.62f to 0.38f) {
+fun SkeletonRow(modifier: Modifier = Modifier, widths: Pair<Float, Float> = 0.62f to 0.38f) {
     val t = rememberInfiniteTransition(label = "skeleton")
     val a by t.animateFloat(1f, 0.55f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "alpha")
     val well = Fp.colors.surfaceSunken
-    Row(Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 16.dp).alpha(a), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().height(72.dp).padding(horizontal = 16.dp).alpha(a), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(40.dp).clip(PebbleShape).background(well))
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
