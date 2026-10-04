@@ -5,9 +5,10 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version number, for example 0.2.0"
-        required: true
+        description: "Version, for example 0.2.0. Leave blank to bump the patch of the latest v* tag (0.1.0 if none)."
+        required: false
         type: string
+        default: ""
       prerelease:
         description: "Mark as a pre-release"
         required: false
@@ -28,9 +29,23 @@ jobs:
     env:
       VERSION: ${{ inputs.version }}
     steps:
-      - name: Check version
+      - uses: actions/checkout@v7
+
+      - name: Pick the version
         run: |
-          VERSION="${VERSION#v}"
+          git fetch --tags --quiet
+          VERSION="$(echo "${VERSION#v}" | xargs)"
+          if [ -z "$VERSION" ]; then
+            # One click: bump the patch of the newest plain vX.Y.Z tag; pre-release tags don't count.
+            LATEST=$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
+            if [ -z "$LATEST" ]; then
+              VERSION=0.1.0
+            else
+              IFS=. read -r MAJOR MINOR PATCH <<< "${LATEST#v}"
+              VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+            fi
+            echo "No version given; latest tag is ${LATEST:-none}, releasing $VERSION."
+          fi
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
             echo "::error::Version must look like 1.2.3 or 1.2.3-beta.1, got '$VERSION'"
             exit 1
@@ -38,11 +53,8 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "TAG=v$VERSION" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v7
-
       - name: Check the tag is new
         run: |
-          git fetch --tags --quiet
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "::error::Tag $TAG already exists. Pick a new version."
             exit 1

@@ -7,11 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,11 +22,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -39,6 +33,7 @@ import dev.flowpilot.app.ui.components.FpSpinner
 import dev.flowpilot.app.ui.components.Ic
 import dev.flowpilot.app.ui.components.ProjectShape
 import dev.flowpilot.app.ui.components.Sym
+import dev.flowpilot.app.ui.components.rowPress
 import dev.flowpilot.app.ui.theme.Fp
 import dev.flowpilot.app.ui.theme.FpType
 import dev.flowpilot.app.ui.theme.Motion
@@ -51,20 +46,15 @@ import dev.flowpilot.core.home.ThreadRowModel
  * 72dp tall, flat inside its card. Pressing paints state-press at once (no ripple); a long press opens the chat's
  * actions. The status mark changes by crossfade and a small scale, never by popping.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ThreadRow(row: ThreadRowModel, projectName: String, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier = Modifier) {
     val c = Fp.colors
-    val source = remember { MutableInteractionSource() }
-    val down by source.collectIsPressedAsState()
-    val press by animateColorAsState(if (down) c.ink.copy(alpha = if (c.isDark) 0.08f else 0.06f) else Color.Transparent, Motion.fadeOut(), label = "rowPress")
     val strong = row.status == RowStatus.Unread || row.status == RowStatus.NeedsYou
     Row(
         modifier
             .fillMaxWidth()
             .heightIn(min = 72.dp)
-            .background(press)
-            .combinedClickable(interactionSource = source, indication = null, onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "Chat options")
+            .rowPress(onClick, onLongClick, "Chat options")
             .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -94,7 +84,7 @@ fun ThreadRow(row: ThreadRowModel, projectName: String, onClick: () -> Unit, onL
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (row.pinned) {
-                    Sym(Ic.pin, "Pinned", size = 12.dp, tint = c.inkFaint)
+                    Sym(Ic.pin, "Pinned", size = 12.dp, tint = c.inkMuted)
                     Spacer(Modifier.width(4.dp))
                 }
                 Text(Format.relative(row.lastActivity), style = FpType.caption, color = c.inkMuted)

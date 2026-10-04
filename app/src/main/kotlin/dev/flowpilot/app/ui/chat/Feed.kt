@@ -6,16 +6,16 @@ import dev.flowpilot.app.ui.components.FpSpinner
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.graphicsLayer
+import dev.flowpilot.app.ui.components.FpButton
+import dev.flowpilot.app.ui.components.FpButtonVariant
+import dev.flowpilot.app.ui.components.rowPress
+import dev.flowpilot.app.ui.theme.Motion
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,9 +31,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -107,11 +105,12 @@ fun UserBubble(entry: ChatEntry.User, onRetry: () -> Unit) {
             }
         }
         if (entry.failed) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Sym(Ic.error, null, size = 16.dp, tint = MaterialTheme.colorScheme.error)
+            Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Sym(Ic.error, null, size = 16.dp, tint = Fp.colors.danger)
                 Spacer(Modifier.width(4.dp))
-                Text("Not sent", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = onRetry) { Text("Retry") }
+                Text("Not sent", style = FpType.caption, color = Fp.colors.danger)
+                Spacer(Modifier.width(4.dp))
+                FpButton("Retry", onRetry, variant = FpButtonVariant.Ghost, small = true)
             }
         }
     }
@@ -126,27 +125,31 @@ fun AssistantText(part: Part.Text) {
     }
 }
 
-/** "Thinking · 4s", collapsed by default. The raw reasoning expands in place. */
+/**
+ * "Thinking · 4s", collapsed by default: quieter than the answer, in ink-muted. The raw reasoning expands in place,
+ * its height on spring-settle and the chevron turning on spring-snappy. While it streams the icon is the spinner,
+ * one of the three things allowed to move on their own.
+ */
 @Composable
 fun ReasoningRow(part: Part.Reasoning) {
     var open by rememberSaveable(part.key) { mutableStateOf(false) }
     val seconds = elapsed(part.started, part.completed, part.streaming)
-    val t = rememberInfiniteTransition(label = "think")
-    val shimmer by t.animateFloat(1f, 0.45f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "a")
-    Column(Modifier.fillMaxWidth().animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec())) {
+    val c = Fp.colors
+    Column(Modifier.fillMaxWidth().animateContentSize(Motion.settle())) {
         Row(
-            Modifier.clickable { open = !open }.padding(vertical = 6.dp),
+            Modifier.clip(Radius.sm).rowPress({ open = !open }).padding(start = 4.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Sym(Ic.psychology, null, size = 18.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
+                if (part.streaming) FpSpinner(Modifier.size(16.dp)) else Sym(Ic.psychology, null, size = 18.dp, tint = c.inkMuted)
+            }
             Spacer(Modifier.width(8.dp))
             Text(
                 if (part.streaming) "Thinking" + (seconds?.let { " · $it" } ?: "") else "Thought" + (seconds?.let { " for $it" } ?: ""),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.alpha(if (part.streaming) shimmer else 1f),
+                style = FpType.label,
+                color = c.inkMuted,
             )
-            Sym(if (open) Ic.expandLess else Ic.expandMore, if (open) "Hide thinking" else "Show thinking", size = 18.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Chevron(open, if (open) "Hide thinking" else "Show thinking", size = 18.dp)
         }
         if (open) {
             val shown = rememberStreamReveal(part.text, part.streaming)
@@ -180,9 +183,9 @@ fun WorkGroup(tools: List<Part.Tool>, live: Boolean) {
     val expanded = live || open
     val failed = tools.count { it.status == ToolStatus.Error }
     Box(Modifier.fillMaxWidth().raised(Radius.lg, Fp.colors.surface)) {
-        Column(Modifier.animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec())) {
+        Column(Modifier.animateContentSize(Motion.settle())) {
             Row(
-                Modifier.fillMaxWidth().clickable(enabled = !live) { open = !open }.padding(horizontal = 14.dp, vertical = 12.dp),
+                Modifier.fillMaxWidth().rowPress({ open = !open }, enabled = !live).padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (live) FpSpinner(Modifier.size(18.dp)) else Sym(if (failed > 0) Ic.warning else Ic.check, null, size = 20.dp, tint = if (failed > 0) Fp.colors.danger else Fp.colors.success)
@@ -192,7 +195,7 @@ fun WorkGroup(tools: List<Part.Tool>, live: Boolean) {
                     ToolDescriber.describe(cur).let { "${it.verb} ${it.target}".trim() }
                 } else ToolDescriber.summary(tools)
                 Text(header, style = FpType.label, color = Fp.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                if (!live) Sym(if (open) Ic.expandLess else Ic.expandMore, if (open) "Collapse" else "Expand", size = 20.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!live) Chevron(open, if (open) "Collapse" else "Expand")
             }
             if (expanded) {
                 HorizontalDivider(color = Fp.colors.line)
@@ -208,18 +211,18 @@ fun ToolRow(tool: Part.Tool) {
     val failed = tool.status == ToolStatus.Error
     var open by rememberSaveable(tool.id) { mutableStateOf(failed) }
     LaunchedEffect(failed) { if (failed) open = true }
-    val scheme = MaterialTheme.colorScheme
+    val c = Fp.colors
     val hasDetail = tool.output != null || tool.error != null || text.changes.any { it.patch != null } || (tool.input?.get("command") != null)
     Column(Modifier.fillMaxWidth()) {
         Row(
-            Modifier.fillMaxWidth().clickable(enabled = hasDetail) { open = !open }.padding(horizontal = 14.dp, vertical = 8.dp),
+            Modifier.fillMaxWidth().rowPress({ open = !open }, enabled = hasDetail).padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
                 when (tool.status) {
                     ToolStatus.Running, ToolStatus.Streaming -> FpSpinner(Modifier.size(18.dp))
-                    ToolStatus.Error -> Sym(Ic.error, "Failed", size = 18.dp, tint = scheme.error)
-                    ToolStatus.Completed -> Sym(Ic.tool(text.icon), null, size = 18.dp, tint = scheme.onSurfaceVariant)
+                    ToolStatus.Error -> Sym(Ic.error, "Failed", size = 18.dp, tint = c.danger)
+                    ToolStatus.Completed -> Sym(Ic.tool(text.icon), null, size = 18.dp, tint = c.inkMuted)
                 }
             }
             Spacer(Modifier.width(10.dp))
@@ -231,31 +234,35 @@ fun ToolRow(tool: Part.Tool) {
                         if (text.code) withStyle(SpanStyle(fontFamily = CodeFamily)) { append(text.target) } else append(text.target)
                     }
                 },
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (failed) scheme.error else scheme.onSurface,
+                style = FpType.body,
+                color = if (failed) c.danger else c.ink,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             if (text.additions > 0 || text.deletions > 0) {
-                Text("+${text.additions}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.code.diffAddInk)
+                Text("+${text.additions}", style = FpType.caption, color = MaterialTheme.code.diffAddInk)
                 Spacer(Modifier.width(4.dp))
-                Text("−${text.deletions}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.code.diffRemoveInk)
+                Text("−${text.deletions}", style = FpType.caption, color = MaterialTheme.code.diffRemoveInk)
             } else if (text.meta != null) {
-                Text(text.meta!!, style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
+                Text(text.meta!!, style = FpType.caption, color = c.inkMuted)
             }
         }
-        AnimatedVisibility(open && hasDetail, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+        AnimatedVisibility(
+            open && hasDetail,
+            enter = expandVertically(Motion.settle()) + fadeIn(Motion.fadeIn()),
+            exit = shrinkVertically(Motion.settle()) + fadeOut(Motion.fadeOut()),
+        ) {
             Column(Modifier.padding(start = 44.dp, end = 12.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val command = (tool.input?.get("command") as? kotlinx.serialization.json.JsonPrimitive)?.content
                 if (command != null) CodeBlock(command, "sh", maxLines = 12)
-                text.changes.forEach { c ->
-                    if (c.patch != null) {
-                        Text(c.file, style = CodeSmallStyle, color = scheme.onSurfaceVariant)
-                        DiffView(c.patch!!, maxLines = 200)
+                text.changes.forEach { change ->
+                    if (change.patch != null) {
+                        Text(change.file, style = CodeSmallStyle, color = c.inkMuted)
+                        DiffView(change.patch!!, maxLines = 200)
                     }
                 }
-                tool.error?.let { Text(it.message.ifBlank { it.type }, style = MaterialTheme.typography.bodyMedium, color = scheme.error) }
+                tool.error?.let { Text(it.message.ifBlank { it.type }, style = FpType.body, color = c.danger) }
                 if (text.changes.isEmpty() && !tool.output.isNullOrBlank()) CodeBlock(tool.output!!.take(8000), "output", maxLines = 24)
             }
         }
@@ -272,7 +279,7 @@ fun StatsLine(entry: ChatEntry.Assistant, modelName: String?) {
         if (entry.completed != null && entry.completed!! > entry.created) add(Format.duration(entry.completed!! - entry.created))
     }
     if (parts.isNotEmpty()) {
-        Text(parts.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(parts.joinToString(" · "), style = FpType.caption, color = Fp.colors.inkMuted)
     }
 }
 
@@ -300,9 +307,9 @@ fun MarkerLine(entry: ChatEntry.Marker) {
     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
         HorizontalDivider(Modifier.weight(1f), color = Fp.colors.line)
         Spacer(Modifier.width(8.dp))
-        Sym(icon, null, size = 16.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Sym(icon, null, size = 16.dp, tint = Fp.colors.inkMuted)
         Spacer(Modifier.width(6.dp))
-        Text(entry.text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(entry.text, style = FpType.caption, color = Fp.colors.inkMuted)
         Spacer(Modifier.width(8.dp))
         HorizontalDivider(Modifier.weight(1f), color = Fp.colors.line)
     }
@@ -314,4 +321,11 @@ fun ShellEntry(entry: ChatEntry.Shell) {
         Text("You ran" + (entry.exit?.let { " · exit ${it.toInt()}" } ?: ""), style = FpType.caption, color = Fp.colors.inkMuted)
         CodeBlock("$ " + entry.command + (entry.output?.let { "\n" + it.take(8000) } ?: ""), "sh", maxLines = 30)
     }
+}
+
+/** A disclosure chevron: one glyph that turns half a circle on spring-snappy rather than swapping icons. */
+@Composable
+private fun Chevron(open: Boolean, label: String, size: androidx.compose.ui.unit.Dp = 20.dp) {
+    val turn by animateFloatAsState(if (open) 180f else 0f, Motion.snappy(), label = "chevron")
+    Sym(Ic.expandMore, label, size = size, tint = Fp.colors.inkMuted, modifier = Modifier.graphicsLayer { rotationZ = turn })
 }
