@@ -15,15 +15,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +47,8 @@ import dev.flowpilot.app.ui.components.Ic
 import dev.flowpilot.app.ui.components.DockTab
 import dev.flowpilot.app.ui.components.FpDock
 import dev.flowpilot.app.ui.theme.FadeThrough
+import dev.flowpilot.app.ui.theme.Motion
+import dev.flowpilot.app.ui.components.FpDialog
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import dev.flowpilot.app.ui.home.HomeScreen
 import dev.flowpilot.app.ui.home.HomeViewModel
@@ -97,14 +95,14 @@ fun AppNav() {
     var lastCrash by remember { mutableStateOf(CrashLog.read(context)) }
     lastCrash?.let { report ->
         val clipboard = LocalClipboardManager.current
-        AlertDialog(
-            onDismissRequest = { CrashLog.clear(context); lastCrash = null },
-            title = { Text("FlowPilot closed unexpectedly") },
-            text = { Text("Copy the details to include them in a bug report.") },
-            confirmButton = {
-                TextButton(onClick = { clipboard.setText(AnnotatedString(report)); CrashLog.clear(context); lastCrash = null }) { Text("Copy details") }
-            },
-            dismissButton = { TextButton(onClick = { CrashLog.clear(context); lastCrash = null }) { Text("Dismiss") } },
+        FpDialog(
+            title = "FlowPilot closed unexpectedly",
+            body = "Copy the details to include them in a bug report.",
+            icon = Ic.error,
+            confirm = "Copy details",
+            onConfirm = { clipboard.setText(AnnotatedString(report)); CrashLog.clear(context); lastCrash = null },
+            dismiss = "Dismiss",
+            onDismiss = { CrashLog.clear(context); lastCrash = null },
         )
     }
 
@@ -127,15 +125,17 @@ fun AppNav() {
         }
     }
 
-    val motion = MaterialTheme.motionScheme
-    Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
+    // Screens push and pop by a quarter of the width: the arriving one travels on spring-glide and fades in, the
+    // leaving one goes on the quicker spring-settle and fades out on duration-exit. Predictive back seeks the pop
+    // pair under the finger.
+    Surface(color = Fp.colors.ground, modifier = Modifier.fillMaxSize()) {
         NavHost(
             navController = nav,
             startDestination = if (conn == null) Routes.PAIR else Routes.MAIN,
-            enterTransition = { slideInHorizontally(motion.defaultSpatialSpec()) { it / 4 } + fadeIn(motion.defaultEffectsSpec()) },
-            exitTransition = { fadeOut(motion.fastEffectsSpec()) },
-            popEnterTransition = { fadeIn(motion.defaultEffectsSpec()) },
-            popExitTransition = { slideOutHorizontally(motion.defaultSpatialSpec()) { it / 4 } + fadeOut(motion.fastEffectsSpec()) },
+            enterTransition = { slideInHorizontally(Motion.glide()) { it / 4 } + fadeIn(Motion.fadeIn()) },
+            exitTransition = { slideOutHorizontally(Motion.settle()) { -it / 4 } + fadeOut(Motion.fadeOut()) },
+            popEnterTransition = { slideInHorizontally(Motion.glide()) { -it / 4 } + fadeIn(Motion.fadeIn()) },
+            popExitTransition = { slideOutHorizontally(Motion.settle()) { it / 4 } + fadeOut(Motion.fadeOut()) },
         ) {
             composable(Routes.PAIR) {
                 PairingScreen(onPaired = { nav.navigate(Routes.MAIN) { popUpTo(0) } })
