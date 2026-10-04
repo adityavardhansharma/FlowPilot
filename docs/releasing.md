@@ -22,9 +22,11 @@ Releases are built from `main`. To try a branch first, pick it in the "Use workf
 
 ## Signing
 
-Every release is signed with the FlowPilot release key, so a new APK installs over the previous one. The workflow
-stops with an error if the key is missing, instead of falling back to a debug key: each CI runner makes a new debug
-key, and Android refuses to update an app with an APK signed by a different key.
+When the release key's secrets are set, every release is signed with it, so a new APK installs over the previous
+one. Without them the workflow still builds and publishes the release, signed with a debug key, and warns in the
+run. Each CI runner makes a new debug key and Android refuses to update an app with an APK signed by a different
+key, so a debug-signed release may need the old app uninstalled first. The run summary shows which certificate
+signed the APK.
 
 The key lives only in these repository secrets (Settings → Secrets and variables → Actions), which
 `scripts/set-release-secrets.sh` sets:

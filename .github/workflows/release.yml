@@ -73,14 +73,14 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.FLOWPILOT_KEYSTORE_BASE64 }}
         run: |
-          # A release must be signed with the release key: every runner makes a fresh debug key, and an APK signed
-          # with a different key can't install over the one people already have.
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::No FLOWPILOT_KEYSTORE_BASE64 secret. Add the release keystore secrets (see docs/releasing.md)."
-            exit 1
+          # Signed with the release key when its secrets exist. Without them the APK falls back to a debug key, so
+          # a release still builds; but each runner makes a fresh debug key, so it may not install over the last one.
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "FLOWPILOT_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No FLOWPILOT_KEYSTORE_BASE64 secret. The APK is signed with a debug key and may need an uninstall before it installs."
           fi
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
-          echo "FLOWPILOT_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
       - name: Test and build release APK
         env:
